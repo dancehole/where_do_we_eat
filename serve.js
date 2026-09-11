@@ -12,9 +12,10 @@ const path = require('path')
 const port = parseInt(process.argv[2] || '3000', 10)
 const root = path.resolve(process.argv[3] || 'frontend/dist')
 
-// 访问日志目录（与 serve.js 同级 logs/），便于排查时直接贴出
+// 访问日志目录：frontend/logs/（与部署文档一致），便于直接 tail / 贴出
+const LOG_DIR = path.join(__dirname, 'frontend', 'logs')
 try {
-  fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true })
+  fs.mkdirSync(LOG_DIR, { recursive: true })
 } catch (e) {}
 
 const mime = {
@@ -55,7 +56,7 @@ http
     try {
       const ip = req.socket.remoteAddress || '-'
       fs.appendFile(
-        path.join(__dirname, 'logs', 'access.log'),
+        path.join(LOG_DIR, 'access.log'),
         `${new Date().toISOString()} ${req.method} ${req.url} from ${ip}\n`,
         () => {}
       )

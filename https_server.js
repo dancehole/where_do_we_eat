@@ -22,8 +22,10 @@ const backendPort = parseInt(process.env.BACKEND_PORT || '8000', 10)
 const key = fs.readFileSync(path.join(certDir, 'server.key'))
 const cert = fs.readFileSync(path.join(certDir, 'server.crt'))
 
+// 访问日志目录：frontend/logs/（与部署文档一致），便于直接 tail / 贴出
+const LOG_DIR = path.join(__dirname, 'frontend', 'logs')
 try {
-  fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true })
+  fs.mkdirSync(LOG_DIR, { recursive: true })
 } catch (e) {}
 
 const mime = {
@@ -60,7 +62,7 @@ function lanAddresses() {
 function logAccess(req) {
   try {
     fs.appendFile(
-      path.join(__dirname, 'logs', 'https-access.log'),
+      path.join(LOG_DIR, 'https-access.log'),
       `${new Date().toISOString()} ${req.method} ${req.url} from ${req.socket.remoteAddress}\n`,
       () => {}
     )

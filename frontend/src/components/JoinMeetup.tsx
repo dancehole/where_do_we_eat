@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { api } from '../services/api'
 import Section from './Section'
 import Icon from './Icon'
-import { amapLocate, amapGeocode } from '../utils/amap'
+import { amapLocate, amapGeocode, getLocateEnv } from '../utils/amap'
 import {
   getStoredNickname,
   getDefaultNickname,
@@ -58,10 +58,15 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
       setAddr(p.addr || `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`)
       setPrecise(!!p.precise)
       if (!p.precise) {
-        setHint('当前为局域网/HTTP 访问，浏览器无法精确定位，已使用网络定位（城市级）。可点「手动选择」精确到具体地点。')
+        const env = getLocateEnv()
+        setHint(
+          env.secure
+            ? '已使用网络定位（城市级，非精确）。想精确到具体地点请点「手动选择」。'
+            : `当前是非安全上下文（${env.protocol}//${env.host}），浏览器精确定位被禁用，已改用网络定位（城市级）。想用浏览器精确定位请改用 https 访问（https://${env.host}），或点「手动选择」。`
+        )
       }
     } catch (e: any) {
-      setHint('自动定位失败，请点「手动选择」输入地点')
+      setHint('自动定位失败：' + (e?.message || '未知原因') + '（可点「手动选择」输入地点）')
       setManualOpen(true)
     } finally {
       setLocating(false)

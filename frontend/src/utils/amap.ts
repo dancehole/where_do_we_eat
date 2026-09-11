@@ -227,26 +227,80 @@ function publicIpLocate(): Promise<GeoPoint> {
   })
 }
 
+// 定位环境快照（用于 UI 诊断 + 日志）：为什么精确定位不可用，一眼可见
+export function getLocateEnv(): {
+  secure: boolean
+  hasGeolocation: boolean
+  protocol: string
+  host: string
+} {
+  const w: any = typeof window !== 'undefined' ? window : null
+  return {
+    secure: !!(w && w.isSecureContext),
+    hasGeolocation: typeof navigator !== 'undefined' && !!navigator.geolocation,
+    protocol: (w && w.location && w.location.protocol) || '',
+    host: (w && w.location && w.location.host) || '',
+  }
+}
+
+// 给任意 Promise 套一层超时，避免个别浏览器 getCurrentPosition 既不回调也不报错导致整链卡死
+function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(msg)), ms)
+    p.then(
+      (v) => {
+        clearTimeout(t)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(t)
+        reject(e)
+      }
+    )
+  })
+}
+
+const errMsg = (e: any) => (e && e.message ? e.message : String(e))
+
 // 定位策略（多级兜底）：
 //   ① 浏览器精确定位（WGS-84→GCJ-02→反查地址）——仅安全上下文（https / localhost）可用；
 //   ② 高德 JS IP 定位（城市级）——非安全上下文可用，但部分环境会挂起/失败；
 //   ③ 服务端 IP 定位（城市级，GCJ-02）——与浏览器安全上下文无关；
-//   ④ 公共 CORS IP 定位（城市级，WGS-84→GCJ-02）——③ 不可用时的终极兜底，保证一定能拿到位置。
+//   ④ 公共 CORS IP 定位（城市级，WGS-84→GCJ-02）——③ 不可用时的终极兜底。
+// 每一级的失败原因都会被记录下来（UP 到后端日志 + 拼进抛出的错误），便于排查“为什么定位失败”。
 export async function amapLocate(): Promise<GeoPoint> {
+  const env = getLocateEnv()
+  const reasons: string[] = []
+  reportDebug(
+    `[locate] begin secureContext=${env.secure} geolocation=${env.hasGeolocation} origin=${env.protocol}//${env.host}`,
+    'INFO'
+  )
+
   // ① 浏览器精确定位
-  if (typeof navigator !== 'undefined' && navigator.geolocation) {
+  if (env.hasGeolocation) {
     try {
       const AMap = await loadAMap()
       await withPlugin(AMap, ['AMap.Geocoder', 'AMap.Geolocation'])
-      const wgs = await browserLocate()
+      const wgs = await withTimeout(
+        browserLocate(),
+        9000,
+        '浏览器定位超时（网络定位服务可能不可达，如国内访问 Google 定位服务被墙）'
+      )
       const g = await toGCJ02(AMap, wgs.lat, wgs.lng)
       const addr = await reverseGeocode(AMap, g.lat, g.lng)
+      reportDebug('[locate] ① 浏览器精确定位成功', 'INFO')
       return { lat: g.lat, lng: g.lng, addr, precise: true }
     } catch (e) {
-      console.warn('[locate] 浏览器精确定位不可用/被拒，继续降级：', e)
+      const m = errMsg(e)
+      reasons.push('浏览器精确定位失败：' + m)
+      reportDebug('[locate] ① 浏览器精确定位失败：' + m, 'ERROR')
     }
   } else {
-    console.warn('[locate] 非安全上下文（局域网/HTTP），跳过浏览器定位')
+    const m = env.secure
+      ? '当前浏览器不支持 geolocation'
+      : `非安全上下文（当前 ${env.protocol}//${env.host}，需 https 或 localhost）`
+    reasons.push('浏览器精确定位不可用：' + m)
+    reportDebug('[locate] ① 跳过浏览器定位：' + m, 'ERROR')
   }
 
   // ② 高德 JS IP 定位
@@ -254,18 +308,37 @@ export async function amapLocate(): Promise<GeoPoint> {
     const AMap = await loadAMap()
     await withPlugin(AMap, ['AMap.Geolocation'])
     const ip = await amapIpLocate(AMap)
+    reportDebug('[locate] ② 高德 JS IP 定位成功', 'INFO')
     return { ...ip, precise: false }
   } catch (e) {
-    console.warn('[locate] 高德 JS IP 定位失败，回退服务端 IP 定位：', e)
+    const m = errMsg(e)
+    reasons.push('高德网络定位失败：' + m)
+    reportDebug('[locate] ② 高德 JS IP 定位失败：' + m, 'ERROR')
   }
 
-  // ③ + ④ 服务端 IP 定位 → 公共 CORS IP 定位
+  // ③ 服务端 IP 定位
   try {
-    return await backendIpLocate()
+    const p = await backendIpLocate()
+    reportDebug('[locate] ③ 服务端 IP 定位成功', 'INFO')
+    return p
   } catch (e) {
-    console.warn('[locate] 服务端 IP 定位失败，回退公共 IP 定位：', e)
-    return publicIpLocate()
+    const m = errMsg(e)
+    reasons.push('服务端网络定位失败：' + m)
+    reportDebug('[locate] ③ 服务端 IP 定位失败：' + m, 'ERROR')
   }
+
+  // ④ 公共 CORS IP 定位
+  try {
+    const p = await publicIpLocate()
+    reportDebug('[locate] ④ 公共 IP 定位成功', 'INFO')
+    return p
+  } catch (e) {
+    const m = errMsg(e)
+    reasons.push('公共网络定位失败：' + m)
+    reportDebug('[locate] ④ 公共 IP 定位失败：' + m, 'ERROR')
+  }
+
+  throw new Error('定位失败：' + reasons.join('；'))
 }
 
 // 地址关键词 -> 坐标（高德地理编码），返回候选列表供用户选择
