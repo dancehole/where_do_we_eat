@@ -1,4 +1,6 @@
 import logging
+from typing import Optional
+
 import requests
 from fastapi import APIRouter, Request
 
@@ -10,10 +12,13 @@ AMAP_IP_URL = "https://restapi.amap.com/v3/ip"
 AMAP_CONVERT_URL = "https://restapi.amap.com/v3/assistant/coordinate/convert"
 
 
-def _amap_ip(key: str):
-    """高德 IP 定位（城市级，GCJ-02）。返回 {lat,lng,city} 或 None。"""
+def _amap_ip(key: str, ip: Optional[str] = None):
+    """高德 IP 定位（城市级，GCJ-02）。可传入要解析的 ip；不传则解析调用方出口 IP。返回 {lat,lng,city} 或 None。"""
+    params = {"key": key}
+    if ip:
+        params["ip"] = ip
     try:
-        r = requests.get(AMAP_IP_URL, params={"key": key}, timeout=8)
+        r = requests.get(AMAP_IP_URL, params=params, timeout=8)
         data = r.json()
     except Exception as e:
         logging.warning("[geo] 高德 /v3/ip 请求失败: %s", e)
@@ -45,9 +50,14 @@ def _amap_ip(key: str):
     return None
 
 
-def _public_ip():
-    """公共 IP 服务兜底（WGS-84）。返回 {lat,lng,city} 或 None。"""
-    for url in ("https://ipapi.co/json/", "https://ipinfo.io/json"):
+def _public_ip(ip: Optional[str] = None):
+    """公共 IP 服务兜底（WGS-84）。可指定要解析的 ip。返回 {lat,lng,city} 或 None。"""
+    if ip:
+        urls = (f"https://ipwho.is/{ip}", f"https://ipinfo.io/{ip}/json")
+    else:
+        # ipapi.co 近期会 403，故不再列为首选
+        urls = ("https://api.ip.sb/geoip/", "https://ipwho.is/", "https://ipinfo.io/json")
+    for url in urls:
         try:
             r = requests.get(url, timeout=8)
             d = r.json()
@@ -90,12 +100,14 @@ def _to_gcj02(key: str, lat: float, lng: float):
 
 
 @router.get("/ip")
-def ip_locate(request: Request):
+def ip_locate(request: Request, ip: Optional[str] = None):
     """
     服务端 IP 定位兜底（城市级）。多级：
       ① 高德 /v3/ip（GCJ-02，最贴近高德地图）；
       ② 公共 IP 服务（WGS-84）再转 GCJ-02；
-    若当前出口 IP 任何服务都解析不到城市，返回 ok:False 让前端继续用更粗的兜底（公共 IP / 手动选择）。
+    可选 ?ip=x.x.x.x：前端把「本机公网 IP」传进来，服务端按【客户端真实出口 IP】定位
+    （否则服务端只能看到调用方出口 IP，即服务器所在城市）。
+    若任何服务都解析不到城市，返回 ok:False 让前端继续用更粗的兜底（公共 IP / 手动选择）。
     注意：IP 定位天生只有城市级精度，无法精确到楼。要精确自动定位需 HTTPS（浏览器 GPS）。
     """
     key = settings.AMAP_WEB_KEY
@@ -103,7 +115,9 @@ def ip_locate(request: Request):
         return {"ok": False, "reason": "未配置 AMAP_WEB_KEY"}
 
     # ① 高德 IP 定位
-    amap = _amap_ip(key)
+    #    ⚠️ 实测高德 /v3/ip 会【忽略 ip 参数】（传任意 IP 仍按调用方出口 IP 返回），
+    #    因此只有不指定 ip 时才用高德；指定 ip 时交给下面能按 IP 解析的公共 IP 服务。
+    amap = None if ip else _amap_ip(key)
     if amap and amap.get("lat") is not None:
         return {
             "ok": True,
@@ -116,7 +130,7 @@ def ip_locate(request: Request):
         }
 
     # ② 公共 IP 服务（WGS-84）→ GCJ-02
-    pub = _public_ip()
+    pub = _public_ip(ip)
     if pub:
         glat, glng = _to_gcj02(key, pub["lat"], pub["lng"])
         return {

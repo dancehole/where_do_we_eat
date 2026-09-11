@@ -7,7 +7,7 @@ import PageContainer from '../../components/PageContainer'
 import Section from '../../components/Section'
 import Icon from '../../components/Icon'
 import MapView from '../../components/MapView'
-import { amapLocate, amapGeocode } from '../../utils/amap'
+import { amapLocate, amapGeocode, getLocateEnv } from '../../utils/amap'
 import { joinKey } from '../../components/JoinMeetup'
 import { useResponsive, tokens } from '../../hooks/useResponsive'
 
@@ -15,6 +15,8 @@ export default function MeetupCreate() {
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
   const [addr, setAddr] = useState('未获取')
   const [locating, setLocating] = useState(false)
+  /** 定位诊断提示（降级原因 / 失败原因），直接展示在页面上，便于排查 */
+  const [locHint, setLocHint] = useState('')
 
   // 手动选择位置
   const [manualOpen, setManualOpen] = useState(false)
@@ -32,18 +34,28 @@ export default function MeetupCreate() {
   // 自动获取位置
   const getLocation = async () => {
     setLocating(true)
+    setLocHint('')
     try {
       if (isH5) {
         const p = await amapLocate()
         setLoc({ lat: p.lat, lng: p.lng })
         setAddr(p.addr || `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`)
+        if (!p.precise) {
+          const env = getLocateEnv()
+          setLocHint(
+            env.secure
+              ? '已使用网络定位（城市级，非精确）。想精确到具体地点请点「手动选择位置」。'
+              : `当前是非安全上下文（${env.protocol}//${env.host}），浏览器精确定位被禁用，已改用网络定位（城市级）。改用 https 访问可启用精确定位。`
+          )
+        }
         return
       }
       const res = await Taro.getLocation({ type: 'gcj02' })
       setLoc({ lat: res.latitude, lng: res.longitude })
       setAddr(`${res.latitude.toFixed(4)}, ${res.longitude.toFixed(4)}`)
     } catch (e: any) {
-      Taro.showToast({ title: '自动定位失败，请手动选择', icon: 'none' })
+      Taro.showToast({ title: '自动定位失败，请看下方原因', icon: 'none' })
+      setLocHint('自动定位失败：' + (e?.message || '未知原因') + '（可点「手动选择位置」）')
       setManualOpen(true)
     } finally {
       setLocating(false)
@@ -157,6 +169,12 @@ export default function MeetupCreate() {
           <Icon name='pin' size={14} color={loc ? '#ff6b35' : '#9ca3af'} />
           <Text>我在：{addr}</Text>
         </View>
+
+        {locHint ? (
+          <Text style={{ display: 'block', marginTop: 8, fontSize: 12, color: '#9a6a00', wordBreak: 'break-word' }}>
+            {locHint}
+          </Text>
+        ) : null}
       </Section>
 
       {manualOpen && (

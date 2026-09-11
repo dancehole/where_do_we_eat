@@ -165,55 +165,92 @@ function amapIpLocate(AMap: any): Promise<GeoPoint> {
   })
 }
 
-// 服务端 IP 定位兜底（城市级，GCJ-02）。与浏览器安全上下文无关：
-// 局域网/HTTP 下浏览器与高德 JS 定位都不可用，但服务端 /api/geo/ip 直接请求高德，
-// 一定能拿到一个城市级坐标，保证「加入碰面」在任意网络环境都能定位。
-function backendIpLocate(): Promise<GeoPoint> {
-  const base = getApiBase()
-  return new Promise((resolve, reject) => {
-    Taro.request({ url: `${base}/api/geo/ip`, method: 'GET' })
-      .then((res: any) => {
-        const d = res.data || {}
-        if (d.ok && d.lat != null && d.lng != null) {
-          resolve({ lat: d.lat, lng: d.lng, addr: d.addr || '网络定位', precise: false })
-        } else {
-          reject(new Error(d.reason || '服务端 IP 定位失败'))
-        }
-      })
-      .catch((e: any) => reject(new Error(e?.message || '服务端 IP 定位请求失败')))
-  })
+// 从任意 IP 服务返回的 JSON 里解析经纬度（兼容 latitude/longitude、lat/lng、loc "lat,lng"）
+function parseLatLng(d: any): { lat: number; lng: number; addr: string } | null {
+  if (!d || typeof d !== 'object') return null
+  if (d.success === false) return null
+  let lat: number | null = null
+  let lng: number | null = null
+  const addr = `${d.region || d.region_name || ''}${d.city || ''}`.trim()
+  if (d.latitude != null && d.longitude != null) {
+    lat = Number(d.latitude)
+    lng = Number(d.longitude)
+  } else if (d.lat != null && d.lng != null) {
+    lat = Number(d.lat)
+    lng = Number(d.lng)
+  } else if (d.loc) {
+    const [a, b] = String(d.loc).split(',')
+    lat = Number(a)
+    lng = Number(b)
+  }
+  if (lat == null || lng == null || isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) return null
+  return { lat, lng, addr: addr || '网络定位' }
 }
 
-// 公共 CORS IP 定位兜底（城市级，WGS-84）：当服务端 /api/geo/ip 暂不可用时，
-// 直接用浏览器请求支持跨域的公开 HTTPS IP 服务（http 页也能请求 https，不受安全上下文限制）。
-// 返回的 WGS-84 会转成高德 GCJ-02 再使用，避免在高德地图上偏移。
-function publicIpLocate(): Promise<GeoPoint> {
-  const services = ['https://ipapi.co/json/', 'https://ipinfo.io/json']
-  const tryOne = (i: number): Promise<GeoPoint> => {
-    if (i >= services.length) return Promise.reject(new Error('所有公共 IP 定位均失败'))
-    return new Promise<GeoPoint>((resolve, reject) => {
-      Taro.request({ url: services[i], method: 'GET' })
+// 浏览器侧可直接跨域访问的公共 IP 定位服务（均返回 Access-Control-Allow-Origin: *）
+//   api.ip.sb：对大陆网络友好，直接给 latitude/longitude
+//   ipwho.is：直接给 latitude/longitude
+//   ipinfo.io：给 loc = "lat,lng"
+// 说明：ipapi.co 近期会返回 403（限流），故不再列为首选。
+const IP_SERVICES: string[] = [
+  'https://api.ip.sb/geoip/',
+  'https://ipwho.is/',
+  'https://ipinfo.io/json',
+]
+
+// 获取本机公网 IP。服务端看不到客户端的公网出口 IP（内网里只看到内网 IP），
+// 所以由浏览器自己取，再交给服务端按这个 IP 定位。
+function getClientPublicIp(): Promise<string> {
+  const urls = ['https://api.ip.sb/ip', 'https://ipwho.is/ip', 'https://api.ipify.org']
+  const tryOne = (i: number): Promise<string> => {
+    if (i >= urls.length) return Promise.reject(new Error('获取公网 IP 失败'))
+    return new Promise<string>((resolve, reject) => {
+      Taro.request({ url: urls[i], method: 'GET' })
         .then((res: any) => {
-          const d = res.data || {}
-          let lat: number | null = null
-          let lng: number | null = null
-          let addr = ''
-          if (d.latitude != null && d.longitude != null) {
-            lat = Number(d.latitude); lng = Number(d.longitude)
-            addr = `${d.region || ''}${d.city || ''}`.trim()
-          } else if (d.loc) {
-            const [la, ln] = String(d.loc).split(',')
-            lat = Number(la); lng = Number(ln)
-            addr = `${d.region || ''}${d.city || ''}`.trim()
-          }
-          if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng)) {
-            resolve({ lat, lng, addr: addr || '网络定位', precise: false })
-          } else {
-            reject(new Error('解析失败'))
-          }
+          const d = res.data
+          const ip = typeof d === 'string' ? d.trim() : d && d.ip ? String(d.ip).trim() : ''
+          const ok = /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) || ip.includes(':')
+          ok ? resolve(ip) : reject(new Error('无有效 IP'))
         })
         .catch(() => reject(new Error('请求失败')))
-    }).catch((e) => (i + 1 < services.length ? tryOne(i + 1) : Promise.reject(e)))
+    }).catch((e) => (i + 1 < urls.length ? tryOne(i + 1) : Promise.reject(e)))
+  }
+  return tryOne(0)
+}
+
+// 服务端 IP 定位兜底（城市级，GCJ-02）。与浏览器安全上下文无关。
+// 尽量带上「本机公网 IP」，让服务端按客户端真实出口 IP 定位（否则只能定位到服务器所在城市）。
+function backendIpLocate(): Promise<GeoPoint> {
+  const base = getApiBase()
+  return getClientPublicIp()
+    .catch(() => '')
+    .then((ip) => Taro.request({ url: `${base}/api/geo/ip${ip ? `?ip=${encodeURIComponent(ip)}` : ''}`, method: 'GET' }))
+    .then((res: any) => {
+      const d = res.data || {}
+      if (d.ok && d.lat != null && d.lng != null) {
+        return { lat: d.lat, lng: d.lng, addr: d.addr || '网络定位', precise: false } as GeoPoint
+      }
+      throw new Error(d.reason || '服务端 IP 定位失败')
+    })
+    .catch((e: any) => {
+      throw new Error(e?.message || '服务端 IP 定位请求失败')
+    })
+}
+
+// 公共 CORS IP 定位兜底（城市级，WGS-84）：浏览器直连公开 HTTPS IP 服务。
+// 返回的 WGS-84 会转成高德 GCJ-02 再使用，避免在高德地图上偏移。
+function publicIpLocate(): Promise<GeoPoint> {
+  const tryOne = (i: number): Promise<GeoPoint> => {
+    if (i >= IP_SERVICES.length) return Promise.reject(new Error('所有公共 IP 定位均失败'))
+    return new Promise<GeoPoint>((resolve, reject) => {
+      Taro.request({ url: IP_SERVICES[i], method: 'GET' })
+        .then((res: any) => {
+          const p = parseLatLng(res.data)
+          if (p) resolve({ ...p, precise: false })
+          else reject(new Error('解析失败'))
+        })
+        .catch(() => reject(new Error('请求失败')))
+    }).catch((e) => (i + 1 < IP_SERVICES.length ? tryOne(i + 1) : Promise.reject(e)))
   }
   return tryOne(0).then(async (p) => {
     // WGS-84 → GCJ-02（高德地图/存储用 GCJ-02）
@@ -265,8 +302,9 @@ const errMsg = (e: any) => (e && e.message ? e.message : String(e))
 // 定位策略（多级兜底）：
 //   ① 浏览器精确定位（WGS-84→GCJ-02→反查地址）——仅安全上下文（https / localhost）可用；
 //   ② 高德 JS IP 定位（城市级）——非安全上下文可用，但部分环境会挂起/失败；
-//   ③ 服务端 IP 定位（城市级，GCJ-02）——与浏览器安全上下文无关；
-//   ④ 公共 CORS IP 定位（城市级，WGS-84→GCJ-02）——③ 不可用时的终极兜底。
+//   ③ 公共 CORS IP 定位（城市级，WGS-84→GCJ-02）——浏览器直连 api.ip.sb → ipwho.is → ipinfo.io，
+//      直接拿到【本机出口 IP】对应城市；
+//   ④ 服务端 IP 定位（城市级，GCJ-02）——携带本机公网 IP，让服务端按客户端出口 IP 解析，作为最后兜底。
 // 每一级的失败原因都会被记录下来（UP 到后端日志 + 拼进抛出的错误），便于排查“为什么定位失败”。
 export async function amapLocate(): Promise<GeoPoint> {
   const env = getLocateEnv()
@@ -316,26 +354,27 @@ export async function amapLocate(): Promise<GeoPoint> {
     reportDebug('[locate] ② 高德 JS IP 定位失败：' + m, 'ERROR')
   }
 
-  // ③ 服务端 IP 定位
-  try {
-    const p = await backendIpLocate()
-    reportDebug('[locate] ③ 服务端 IP 定位成功', 'INFO')
-    return p
-  } catch (e) {
-    const m = errMsg(e)
-    reasons.push('服务端网络定位失败：' + m)
-    reportDebug('[locate] ③ 服务端 IP 定位失败：' + m, 'ERROR')
-  }
-
-  // ④ 公共 CORS IP 定位
+  // ③ 公共 CORS IP 定位（浏览器直连，首选 api.ip.sb）：拿到的是【本机出口 IP】对应城市，
+  //    比服务端定位更贴近用户；且不受安全上下文限制。
   try {
     const p = await publicIpLocate()
-    reportDebug('[locate] ④ 公共 IP 定位成功', 'INFO')
+    reportDebug('[locate] ③ 公共 IP 定位成功（ip.sb/ipwho.is/ipinfo）', 'INFO')
     return p
   } catch (e) {
     const m = errMsg(e)
     reasons.push('公共网络定位失败：' + m)
-    reportDebug('[locate] ④ 公共 IP 定位失败：' + m, 'ERROR')
+    reportDebug('[locate] ③ 公共 IP 定位失败：' + m, 'ERROR')
+  }
+
+  // ④ 服务端 IP 定位（携带本机公网 IP，让服务端按客户端出口 IP 解析）
+  try {
+    const p = await backendIpLocate()
+    reportDebug('[locate] ④ 服务端 IP 定位成功', 'INFO')
+    return p
+  } catch (e) {
+    const m = errMsg(e)
+    reasons.push('服务端网络定位失败：' + m)
+    reportDebug('[locate] ④ 服务端 IP 定位失败：' + m, 'ERROR')
   }
 
   throw new Error('定位失败：' + reasons.join('；'))
