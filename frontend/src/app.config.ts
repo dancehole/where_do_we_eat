@@ -9,6 +9,7 @@ export default {
     'pages/meetup-list/index',
     'pages/meetup-detail/index',
     'pages/restaurant-list/index',
+    'pages/preferences/index',
     'pages/mine/index',
   ],
   window: {

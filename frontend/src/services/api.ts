@@ -42,7 +42,15 @@ export const api = {
   center: (code: string) => request(`/api/meetups/${code}/center`),
   restaurants: (code: string, params: Record<string, any> = {}) =>
     request(`/api/meetups/${code}/restaurants${buildQuery(params)}`),
+  // 碰面专属偏好（保留）
   preferences: (code: string, body: any) =>
     request(`/api/meetups/${code}/preferences`, { method: 'POST', data: body }),
+
+  // 全局偏好（跨碰面复用，设置页用）
+  myPreferences: () => request('/api/preferences'),
+  savePreferences: (body: any) => request('/api/preferences', { method: 'PUT', data: body }),
+  parsePreferences: (text: string) =>
+    request('/api/preferences/parse', { method: 'POST', data: { text } }),
+
   aiRecommend: (body: any) => request('/api/ai/recommend', { method: 'POST', data: body }),
 }

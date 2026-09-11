@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, String, DateTime, Enum as SAEnum, DECIMAL,
-    ForeignKey, JSON, Text,
+    ForeignKey, JSON, Text, Integer,
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -76,11 +76,36 @@ class Restaurant(Base):
 
 
 class Preference(Base):
+    """用户偏好。
+
+    meetup_id 为空 = 该用户的**全局偏好**（设置页写的就是这条，跨碰面复用）；
+    非空 = 某次碰面的专属覆盖。读取时优先取碰面专属，取不到再退回全局。
+    """
+
     __tablename__ = "preferences"
     id = Column(String(36), primary_key=True, default=_uuid)
     user_id = Column(String(36), ForeignKey("users.id"))
     meetup_id = Column(String(36), ForeignKey("meetups.id"), nullable=True)
+
+    # 品牌 / 具体餐厅 的偏好与排除（按名字子串匹配）
     brand_include = Column(JSON, nullable=True)
     brand_exclude = Column(JSON, nullable=True)
     restaurant_include = Column(JSON, nullable=True)
     restaurant_exclude = Column(JSON, nullable=True)
+
+    # 菜系偏好（匹配高德 type 的细分段，如「日本料理」「火锅店」；也支持“日料/火锅”这类口语词）
+    cuisine_include = Column(JSON, nullable=True)
+    cuisine_exclude = Column(JSON, nullable=True)
+
+    # 商圈优先（匹配高德 business_area）
+    area_include = Column(JSON, nullable=True)
+
+    # 默认筛选（单次请求显式传的 filters 优先级更高）
+    price_min = Column(DECIMAL(10, 2), nullable=True)
+    price_max = Column(DECIMAL(10, 2), nullable=True)
+    radius = Column(Integer, nullable=True)          # 高德 POI 搜索半径（米）
+
+    # 用户手写的长文本偏好（可用 AI 解析成上面这些结构化字段）
+    note = Column(Text, nullable=True)
+
+    updated_at = Column(DateTime, default=_now, onupdate=_now)

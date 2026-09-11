@@ -124,6 +124,14 @@ export default function Mine() {
             <Text style={{ flex: 1, color: '#2b2b2b' }}>找吃饭的地方</Text>
             <Icon name='arrow' size={16} color='#9ca3af' />
           </View>
+          <View
+            onClick={() => Taro.navigateTo({ url: '/pages/preferences/index' })}
+            style={quickRow('#8b5cf6')}
+          >
+            <Icon name='chopsticks' size={18} color='#8b5cf6' />
+            <Text style={{ flex: 1, color: '#2b2b2b' }}>我的口味偏好</Text>
+            <Icon name='arrow' size={16} color='#9ca3af' />
+          </View>
         </View>
       </Section>
 

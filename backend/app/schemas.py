@@ -48,16 +48,43 @@ class MeetupOut(BaseModel):
 class RestaurantFilter(BaseModel):
     price_min: Optional[float] = None
     price_max: Optional[float] = None
-    categories: Optional[List[str]] = None
+    # 菜系筛选：逗号/竖线分隔的字符串（前端数组序列化成 CSV 更稳，避免各端 query 数组写法不一致）
+    categories: Optional[str] = None
     near_subway: Optional[bool] = None
     business_district: Optional[bool] = None
+    # 高德 POI 搜索半径（米），默认 3000
+    radius: Optional[int] = None
+    # 勾选「排序更多餐厅」：翻更多页拉候选，再取评分最好的前 25 家参与排序
+    more: Optional[bool] = None
 
 
 class PreferenceIn(BaseModel):
+    """用户偏好。空列表 = 清空该项；不传 = 保持原值（整体覆盖式保存）。"""
+
     brand_include: Optional[List[str]] = None
     brand_exclude: Optional[List[str]] = None
     restaurant_include: Optional[List[str]] = None
     restaurant_exclude: Optional[List[str]] = None
+    # 菜系：喜欢 / 不喜欢（如 ["日本料理", "火锅店"] / ["粤菜", "西餐"]）
+    cuisine_include: Optional[List[str]] = None
+    cuisine_exclude: Optional[List[str]] = None
+    # 商圈优先
+    area_include: Optional[List[str]] = None
+    # 默认筛选
+    price_min: Optional[float] = None
+    price_max: Optional[float] = None
+    radius: Optional[int] = None
+    # 手写长文本（可交 AI 解析）
+    note: Optional[str] = None
+
+
+class PreferenceOut(PreferenceIn):
+    updated_at: Optional[datetime] = None
+
+
+class PrefParseIn(BaseModel):
+    """把用户手写的长文本交给 AI 解析成结构化偏好。"""
+    text: str
 
 
 class RestaurantOut(BaseModel):
@@ -75,7 +102,14 @@ class RestaurantOut(BaseModel):
 
 
 class AIRecommendIn(BaseModel):
-    center_name: str = "市中心"
-    budget: float = 100.0
-    prefers: str = "靠近商圈、交通方便、优先连锁品牌、评分高"
-    restaurants: List[dict] = []
+    """AI 推送入参。
+
+    推荐用法：只传 `code`，后端会自己从碰面中心点 + 该用户偏好 + 已排序餐厅（restaurants 表）
+    拼装完整上下文；仍兼容旧用法（前端直接传 center_name / budget / prefers / restaurants）。
+    """
+
+    code: Optional[str] = None
+    center_name: Optional[str] = None
+    budget: Optional[float] = None
+    prefers: Optional[str] = None
+    restaurants: Optional[List[dict]] = None

@@ -16,8 +16,14 @@ from ..schemas import (
     RestaurantFilter, PreferenceIn, RestaurantOut, ParticipantUpdate,
 )
 from ..services import geo, amap, rank
+from . import preferences as prefs_api
 
 router = APIRouter(prefix="/api/meetups", tags=["meetups"])
+
+
+def _dump(model) -> dict:
+    """兼容 pydantic v1/v2。"""
+    return model.model_dump() if hasattr(model, "model_dump") else model.dict()
 
 
 def _gen_code(db: Session) -> str:
@@ -227,22 +233,60 @@ def get_restaurants(
     if m.center_lat is None:
         _ensure_center(m, db)
 
-    raw = amap.search_restaurants(float(m.center_lat), float(m.center_lng))
+    # 用户偏好：碰面专属 → 全局（设置页保存的是全局）
+    prefs = prefs_api.prefs_of(db, user.id, m.id)
+
+    # 单次请求的 filters 优先；缺省时用偏好里的默认值
+    f = _dump(filters)
+    # categories 收 CSV/竖线分隔字符串，这里拆成列表给排序算法用
+    f["categories"] = [
+        s.strip()
+        for s in str(f.get("categories") or "").replace("|", ",").split(",")
+        if s.strip()
+    ]
+    if f.get("price_min") is None:
+        f["price_min"] = prefs.get("price_min")
+    if f.get("price_max") is None:
+        f["price_max"] = prefs.get("price_max")
+    # 偏好里的 radius 可能来自 DB，统一转 int，避免把 Decimal 传给高德
+    radius = int(f.get("radius") or prefs.get("radius") or 3000)
+    f["radius"] = radius
+    more = bool(f.get("more"))
+
+    # 候选池：默认 1 页（≤25 条）；勾选「排序更多餐厅」则翻 4 页（≤100 条）
+    raw = amap.search_restaurants(
+        float(m.center_lat), float(m.center_lng),
+        radius=radius, max_count=100 if more else 25, pages=4 if more else 1,
+    )
     source = "amap"
+
+    # 喜欢的菜系：高德不支持「喜欢/不喜欢」，用一次额外关键词检索把这些店捞进候选池
+    liked = [c for c in (prefs.get("cuisine_include") or []) if c]
+    if liked:
+        extra = amap.search_restaurants(
+            float(m.center_lat), float(m.center_lng),
+            radius=radius, keywords="|".join(liked), types="餐饮服务",
+            max_count=25, pages=1,
+        )
+        seen = {f"{r['name']}|{r.get('lat')}|{r.get('lng')}" for r in raw}
+        for r in extra:
+            k = f"{r['name']}|{r.get('lat')}|{r.get('lng')}"
+            if k not in seen:
+                seen.add(k)
+                raw.append(r)
+
     if not raw:
         raw = _mock_restaurants(float(m.center_lat), float(m.center_lng))
         source = "mock"
 
-    pref = db.query(Preference).filter(
-        Preference.user_id == user.id, Preference.meetup_id == m.id
-    ).order_by(Preference.id.desc()).first()
-    pref_dict = {
-        "brand_include": (pref.brand_include if pref else None) or [],
-        "brand_exclude": (pref.brand_exclude if pref else None) or [],
-        "restaurant_include": (pref.restaurant_include if pref else None) or [],
-        "restaurant_exclude": (pref.restaurant_exclude if pref else None) or [],
-    }
-    scored = rank.score_restaurants(raw, filters.dict(), pref_dict)
+    # 「排序更多餐厅」：从大候选池里取评分最好的前 25 家参与排序
+    if more:
+        rated = [r for r in raw if r.get("rating") is not None]
+        unrated = [r for r in raw if r.get("rating") is None]
+        rated.sort(key=lambda x: x["rating"], reverse=True)
+        raw = (rated + unrated)[:25]
+
+    scored = rank.score_restaurants(raw, f, prefs)
 
     # 缓存到 restaurants 表
     db.query(Restaurant).filter(Restaurant.meetup_id == m.id).delete()
@@ -258,18 +302,28 @@ def get_restaurants(
     db.commit()
     for r in scored:
         r["source"] = source
-    return scored[:20]
+    # 默认返回 20 家；勾选「排序更多餐厅」时返回 25 家
+    return scored[: 25 if more else 20]
 
 
 @router.post("/{code}/preferences")
 def set_preference(code: str, body: PreferenceIn,
                    user: User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
-    db.add(Preference(
-        user_id=user.id, meetup_id=code,
-        brand_include=body.brand_include, brand_exclude=body.brand_exclude,
-        restaurant_include=body.restaurant_include,
-        restaurant_exclude=body.restaurant_exclude,
-    ))
+    """设置「本次碰面专属」的偏好。
+
+    注意：以前这里错把 meetup 的 **code** 存进了 meetup_id 字段，导致读取时按 id 查询永远匹配不上、
+    偏好完全不生效（已修复为存 m.id）。跨碰面的通用偏好请用 `PUT /api/preferences`。
+    """
+    m = db.query(Meetup).filter(Meetup.code == code).first()
+    if not m:
+        raise HTTPException(404, "碰面不存在")
+    row = db.query(Preference).filter(
+        Preference.user_id == user.id, Preference.meetup_id == m.id
+    ).first()
+    if row is None:
+        row = Preference(id=str(uuid.uuid4()), user_id=user.id, meetup_id=m.id)
+        db.add(row)
+    prefs_api.apply_prefs(row, body)
     db.commit()
     return {"ok": True}
