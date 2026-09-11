@@ -45,9 +45,9 @@ export function saveNickname(name: string) {
   if (name && name.trim()) Taro.setStorageSync(NICK_KEY, name.trim())
 }
 
-/** 是否微信小程序环境 */
+/** 是否微信小程序环境（用构建期常量判断：Taro.getEnv() 返回的是 'WEAPP' 大写） */
 export function isWeapp(): boolean {
-  return Taro.getEnv() === 'weapp'
+  return process.env.TARO_ENV === 'weapp'
 }
 
 /**

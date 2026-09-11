@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { api } from '../services/api'
 import Section from './Section'
 import Icon from './Icon'
+import MapPicker from './MapPicker'
 import { amapLocate, amapGeocode, getLocateEnv } from '../utils/amap'
 import {
   getStoredNickname,
@@ -48,6 +49,18 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
   const [searching, setSearching] = useState(false)
   const [manualLat, setManualLat] = useState('')
   const [manualLng, setManualLng] = useState('')
+  /** 地图选点的「大概位置」中心（自动定位/搜索结果），仅用于让地图落在对的地方 */
+  const [pickCenter, setPickCenter] = useState<{ lat: number; lng: number } | null>(null)
+  /** 「其他方式」（手动输入经纬度）是否展开——次选，默认折叠 */
+  const [otherOpen, setOtherOpen] = useState(false)
+
+  const toggleManual = () => {
+    setManualOpen((v) => {
+      const next = !v
+      if (next) setPickCenter((c) => c || loc)
+      return next
+    })
+  }
 
   const locate = async () => {
     setLocating(true)
@@ -56,6 +69,7 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
       const p = await amapLocate()
       setLoc({ lat: p.lat, lng: p.lng })
       setAddr(p.addr || `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`)
+      setPickCenter({ lat: p.lat, lng: p.lng })
       setPrecise(!!p.precise)
       if (!p.precise) {
         const env = getLocateEnv()
@@ -92,10 +106,10 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
     setAddr(p.addr)
     setPrecise(true)
     setHint('')
-    setManualOpen(false)
+    setPickCenter({ lat: p.lat, lng: p.lng })
     setResults([])
     setKw('')
-    Taro.showToast({ title: '已选择位置', icon: 'success' })
+    Taro.showToast({ title: '已选该地点', icon: 'success' })
   }
 
   const applyCoord = () => {
@@ -109,7 +123,7 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
     setAddr(`手动坐标: ${la}, ${ln}`)
     setPrecise(true)
     setHint('')
-    setManualOpen(false)
+    setPickCenter({ lat: la, lng: ln })
   }
 
   const useWechat = async () => {
@@ -220,7 +234,7 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
         <View style={{ marginTop: 10 }}>
           <Button
             size='mini'
-            onClick={() => setManualOpen((v) => !v)}
+            onClick={toggleManual}
             style={{
               background: '#fff',
               color: '#6b7280',
@@ -302,7 +316,7 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
         </Button>
         <Button
           size='mini'
-          onClick={() => setManualOpen((v) => !v)}
+          onClick={toggleManual}
           style={{
             background: 'rgba(255,255,255,0.7)',
             color: '#6b7280',
@@ -365,8 +379,19 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
   function renderManual() {
     return (
       <View style={{ marginTop: 10 }}>
-        <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginBottom: 6 }}>
-          输入地点名搜索，或粘贴经纬度
+        {/* 地图选点：以「大概位置」为中心，点选/拖动标记选具体位置 */}
+        <MapPicker
+          center={pickCenter}
+          height={220}
+          onChange={(p) => {
+            setLoc({ lat: p.lat, lng: p.lng })
+            setAddr(p.addr)
+            setPrecise(true)
+            setHint('')
+          }}
+        />
+        <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginTop: 10, marginBottom: 6 }}>
+          也可以搜索地点，地图会自动移到该处
         </Text>
         <View style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Input
@@ -428,55 +453,70 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
           </View>
         )}
 
-        <View style={{ marginTop: 10 }}>
-          <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginBottom: 6 }}>
-            或直接输入经纬度（gcj02）
-          </Text>
-          <View style={{ display: 'flex', gap: 8 }}>
-            <Input
-              placeholder='纬度 lat'
-              type='digit'
-              value={manualLat}
-              onInput={(e) => setManualLat(e.detail.value)}
-              style={{
-                flex: 1,
-                background: '#fff',
-                border: '1px solid rgba(0,0,0,0.08)',
-                borderRadius: 10,
-                padding: '10px 12px',
-                fontSize: 14,
-              }}
-            />
-            <Input
-              placeholder='经度 lng'
-              type='digit'
-              value={manualLng}
-              onInput={(e) => setManualLng(e.detail.value)}
-              style={{
-                flex: 1,
-                background: '#fff',
-                border: '1px solid rgba(0,0,0,0.08)',
-                borderRadius: 10,
-                padding: '10px 12px',
-                fontSize: 14,
-              }}
-            />
-          </View>
-          <Button
-            size='mini'
-            onClick={applyCoord}
-            style={{
-              marginTop: 8,
-              background: 'rgba(255,107,53,0.1)',
-              color: '#ff6b35',
-              border: '1px solid rgba(255,107,53,0.3)',
-              borderRadius: 999,
-              padding: '6px 14px',
-            }}
-          >
-            使用此坐标
-          </Button>
+        {/* 其他方式（次选，默认折叠）：手动输入经纬度 */}
+        <View
+          onClick={() => setOtherOpen((v) => !v)}
+          style={{
+            marginTop: 10,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            cursor: 'pointer',
+            color: '#6b7280',
+            fontSize: 12,
+          }}
+        >
+          <Text>{otherOpen ? '▾ 收起「其他方式」' : '▸ 其他方式（手动输入经纬度）'}</Text>
         </View>
+
+        {otherOpen && (
+          <View style={{ marginTop: 8 }}>
+            <View style={{ display: 'flex', gap: 8 }}>
+              <Input
+                placeholder='纬度 lat'
+                type='digit'
+                value={manualLat}
+                onInput={(e) => setManualLat(e.detail.value)}
+                style={{
+                  flex: 1,
+                  background: '#fff',
+                  border: '1px solid rgba(0,0,0,0.08)',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  fontSize: 14,
+                }}
+              />
+              <Input
+                placeholder='经度 lng'
+                type='digit'
+                value={manualLng}
+                onInput={(e) => setManualLng(e.detail.value)}
+                style={{
+                  flex: 1,
+                  background: '#fff',
+                  border: '1px solid rgba(0,0,0,0.08)',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  fontSize: 14,
+                }}
+              />
+            </View>
+            <Button
+              size='mini'
+              onClick={applyCoord}
+              style={{
+                marginTop: 8,
+                background: 'rgba(255,107,53,0.1)',
+                color: '#ff6b35',
+                border: '1px solid rgba(255,107,53,0.3)',
+                borderRadius: 999,
+                padding: '6px 14px',
+              }}
+            >
+              使用此坐标
+            </Button>
+          </View>
+        )}
       </View>
     )
   }
