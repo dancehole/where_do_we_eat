@@ -32,6 +32,9 @@ const mime = {
   '.woff2': 'font/woff2',
   '.ttf': 'font/ttf',
   '.ico': 'image/x-icon',
+  // 证书：以证书 MIME 返回，手机浏览器打开链接即可进入「安装证书」流程
+  '.crt': 'application/x-x509-ca-cert',
+  '.pem': 'application/x-x509-ca-cert',
 }
 
 // 列出所有内网 IPv4，启动时打印，方便直接拿去在其它设备上访问
