@@ -1,0 +1,35 @@
+{
+  "name": "where-do-we-go-to-eat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "我们去哪儿吃饭 - Web + 微信小程序双端",
+  "scripts": {
+    "build:weapp": "node node_modules/@tarojs/cli/bin/taro build --type weapp",
+    "build:h5": "node node_modules/@tarojs/cli/bin/taro build --type h5",
+    "dev:weapp": "node node_modules/@tarojs/cli/bin/taro build --type weapp --watch",
+    "dev:h5": "node node_modules/@tarojs/cli/bin/taro build --type h5 --watch"
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.24.0",
+    "@tarojs/components": "3.6.23",
+    "@tarojs/helper": "3.6.23",
+    "@tarojs/plugin-framework-react": "3.6.23",
+    "@tarojs/plugin-platform-weapp": "3.6.23",
+    "@tarojs/plugin-platform-h5": "3.6.23",
+    "@tarojs/react": "3.6.23",
+    "@tarojs/runtime": "3.6.23",
+    "@tarojs/shared": "3.6.23",
+    "@tarojs/taro": "3.6.23",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.5",
+    "@tarojs/cli": "3.6.23",
+    "@tarojs/webpack5-runner": "3.6.23",
+    "babel-preset-taro": "3.6.23",
+    "typescript": "^5.4.0",
+    "webpack": "5.91.0"
+  }
+}

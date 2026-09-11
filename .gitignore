@@ -1,0 +1,48 @@
+# ---- 依赖 ----
+node_modules/
+frontend/node_modules/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# ---- 环境变量 / 密钥（务必入库前排除）----
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# ---- 证书 / 私钥 ----
+certs/
+*.pem
+*.key
+*.crt
+*.csr
+
+# ---- 构建产物 ----
+frontend/dist/
+dist/
+build/
+
+# ---- 数据库 / 日志 ----
+*.db
+*.sqlite
+*.sqlite3
+logs/
+*.log
+
+# ---- 系统 / 编辑器 ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# ---- 智能体工具的本地数据（含本地笔记，保持私有）----
+.workbuddy/

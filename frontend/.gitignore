@@ -1,0 +1,6 @@
+node_modules/
+node_modules_bak/
+dist/
+.taro/
+*.log
+.DS_Store

@@ -1,0 +1,13 @@
+{
+  "miniprogramRoot": "dist/",
+  "projectname": "where-do-we-go-to-eat",
+  "description": "我们去哪儿吃饭",
+  "appid": "touristappid",
+  "setting": {
+    "urlCheck": false,
+    "es6": false,
+    "minified": false,
+    "postcss": false
+  },
+  "compileType": "miniprogram"
+}
