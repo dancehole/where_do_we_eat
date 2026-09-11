@@ -211,6 +211,8 @@ fuser -k 3000/tcp 8000/tcp 8443/tcp             # 停止
 | `backend/app/api/debug.py` | 浏览器调试日志由 `%TEMP%/amap_debug.log` 改为 **`backend/logs/browser.log`** | /tmp 路径不易找到；固定进项目目录便于 tail/贴出 |
 | `.gitignore` / `.gitattributes`（新增） | 忽略 `.env`/`certs`/`.venv`/`node_modules`/`dist`/`*.db`/`.workbuddy`；统一 LF | 防密钥入库；防 Linux 上 `.sh` 因 CRLF 无法执行 |
 | `backend/.env.example` | 补充 `AMAP_SECURITY_CODE`、`FRONTEND_BASE` | 便于他人按模板配置 |
+| `frontend/src/components/MapPicker.tsx`（新增） | 高德地图「地图选点」组件：点选/拖动标记 + 反查地址；沿用 MapView 的容器兜底（原生 div 宿主、等尺寸、ResizeObserver、失败上报） | 手动选择从「输经纬度」升级为「图上点选」 |
+| `frontend/src/pages/meetup-create/index.tsx`、`frontend/src/components/JoinMeetup.tsx` | 手动选择区块改为「**地图选点** + 搜索（把地图移到该处）」，经纬度输入收进可折叠的「**其他方式**（次选）」；环境判断由 `Taro.getEnv() === 'h5'` 改为 `process.env.TARO_ENV === 'h5'` | ⚠️ `Taro.getEnv()` 在 H5 返回 `'WEB'`，写 `'h5'` **恒为 false**，会让 H5 端跳过定位兜底链（见「已知限制」） |
 
 ---
 
@@ -270,6 +272,11 @@ curl.exe --ssl-no-revoke -o NUL -w "%{http_code}" https://192.168.31.5:8443/
 4. **服务重启后不会自动拉起**（非 systemd）；服务器重启后需手动 `bash run_server.sh`。
 5. **服务器 IP 变化需重签证书**（SAN 必须包含新 IP）。
 6. Windows 自带 `curl` 用 schannel，对自签 CA 会因「无吊销列表」报 `CRYPT_E_NO_REVOCATION_CHECK`；这是 curl 的严格检查，**浏览器不受影响**，curl 可加 `--ssl-no-revoke`。
+7. **Taro 环境判断**：`Taro.getEnv()` 在 H5 返回 **`'WEB'`**、小程序返回 **`'WEAPP'`**（都是大写）。
+   务必用**构建期常量** `process.env.TARO_ENV === 'h5' / 'weapp'`；否则 H5 分支会**静默失效**
+   （本项目曾因此让 H5 端不走定位兜底、定位直接失败，且错误无 `message` → 页面只显示「未知原因」）。
+8. **本机开代理会影响 IP 定位**：浏览器出口 IP 会变成代理的 IP，IP 定位结果即**代理所在地**
+   （实测拿到日本兵库县）。要按真实位置做 IP 定位，请关闭代理；精确定位请用手机浏览器。
 
 ---
 
