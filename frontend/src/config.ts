@@ -13,9 +13,15 @@ export function getApiBase(): string {
   if (explicit) return explicit.replace(/\/+$/, '')
 
   if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-    const { protocol, hostname } = window.location
+    const loc = window.location
+    const { protocol, hostname } = loc
+    // HTTPS 场景：走「同源反向代理」（https_server.js 把 /api/* 转发到后端 :8000）。
+    // 若仍拼 :8000 会变成 https 页面请求 http://host:8000 → 触发混合内容拦截。
+    if (protocol === 'https:') {
+      return loc.origin.replace(/\/+$/, '')
+    }
     // file:// 直接打开产物时不适用，退回 localhost
-    if (protocol === 'http:' || protocol === 'https:') {
+    if (protocol === 'http:') {
       return `${protocol}//${hostname}:8000`
     }
   }

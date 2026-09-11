@@ -276,3 +276,67 @@ npm run dev:weapp     # 微信开发者工具导入 dist 目录调试小程序
 > 其中 `process.env.TARO_PLATFORM==='web' ? window : EMPTY_OBJ` 在 H5 构建时 `TARO_PLATFORM==='web'`，
 > Node 无 `window` 即报 `window is not defined`。此修复对所有 Node 版本生效。
 
+---
+
+## 十、内网 HTTPS 与「精确定位」（安全上下文）
+
+### 为什么需要 HTTPS
+浏览器原生精确定位 `navigator.geolocation` **只在「安全上下文」可用**：
+- ✅ `https://…`（证书被信任）
+- ✅ `http://localhost` / `http://127.0.0.1`
+- ❌ `http://192.168.x.x`（局域网 IP）——非安全上下文，`navigator.geolocation` 直接不可用，
+  控制台报 `Only secure origins are allowed`。
+
+所以局域网内想用「当前精确位置」，必须让页面跑在 `https://` 上。IP 定位（城市级）不受此限制，
+但精度只到城市，只能作为兜底。
+
+### 方案：自签本地 CA + HTTPS 同源服务（:8443）
+项目根目录提供 `https_server.js`（零依赖 Node），做两件事：
+1. 用 `certs/` 下的证书以 **https** 提供前端静态产物；
+2. 把 `/api/*`（含 `/docs`）**反向代理**到后端 `:8000`，保证「页面 https + 接口 https 同源」，避免混合内容拦截。
+`frontend/src/config.ts` 的 `getApiBase()` 在 `https:` 下返回同源地址（不带 `:8000`）。
+
+### 证书（已生成，位于服务器 `certs/`）
+| 文件 | 说明 |
+| --- | --- |
+| `certs/ca.crt` | 本地根证书，**需安装到每台测试设备并设为受信任** |
+| `certs/server.crt` / `server.key` | 服务器证书（SAN：`eat.lan`、`localhost`、`192.168.31.5`、`127.0.0.1`），有效期 825 天 |
+| `certs/ca.key` | CA 私钥（勿外泄，已 gitignore） |
+
+重新生成（Linux）：
+```bash
+cd certs
+openssl genrsa -out ca.key 2048
+openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 -subj "/CN=WhereToEat Local CA" -out ca.crt
+openssl genrsa -out server.key 2048
+openssl req -new -key server.key -subj "/CN=eat.lan" -out server.csr
+cat > san.cnf <<'EOF'
+subjectAltName=DNS:eat.lan,DNS:localhost,IP:192.168.31.5,IP:127.0.0.1
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+basicConstraints=CA:FALSE
+EOF
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 825 -sha256 -extfile san.cnf
+```
+
+### 使用步骤（测试精确定位）
+1. **安装根证书**：把 `certs/ca.crt` 传到测试设备并安装为受信任根证书
+   - **iOS**：下载 `.crt` → 设置 → 通用 → VPN与设备管理 → 安装描述文件；再到 设置 → 通用 → 关于本机 → 证书信任设置 → 打开完全信任。
+   - **Android**：设置 → 安全 → 加密与凭据 → 安装证书 → CA 证书 → 选择 `ca.crt`。
+   - **Windows**：双击 `ca.crt` → 安装证书 → 本地计算机 → 受信任的根证书颁发机构。
+2. **访问**：`https://192.168.31.5:8443/`（证书 SAN 已含该 IP，直接可用）。
+   想用域名 `eat.lan` 访问，则在设备/路由 DNS 或 hosts 里把 `eat.lan` 解析到 `192.168.31.5`。
+3. 页面提示定位授权时点「允许」→ 生效后拿到的是 **浏览器精确定位**（`precise: true`）。
+
+启动/停止（服务器 `~/project/where_do_we_go_to_eat`）：
+```bash
+bash run_server.sh                 # 同时起 :8000 后端 / :3000 http 前端 / :8443 https 前端
+fuser -k 3000/tcp 8000/tcp 8443/tcp   # 停止
+```
+
+### ⚠️ 重要：桌面浏览器的地域限制
+桌面版 Chrome / Edge 的定位依赖 **Google 网络定位服务**（`googleapis.com`），**中国大陆网络通常不可达**，
+因此即使升级到 https，桌面端也可能仍拿不到精确定位（报网络定位服务不可用）。
+**建议用手机浏览器（通过上面的 https）测试精确定位**——手机走系统 GPS/WiFi 定位，最可靠；
+微信小程序端则用腾讯定位服务，国内可用。桌面端可改用「手动选点 / 搜索地址」作为精确输入。
+
