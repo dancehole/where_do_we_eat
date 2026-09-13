@@ -1,11 +1,13 @@
 import { View, Text, Button, Input, Image } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../../services/api'
 import { useStore } from '../../store'
 import PageContainer from '../../components/PageContainer'
 import Section from '../../components/Section'
 import Icon from '../../components/Icon'
+import MapView from '../../components/MapView'
+import NearAddressPicker, { NearAddress } from '../../components/NearAddressPicker'
 import { useResponsive, tokens } from '../../hooks/useResponsive'
 
 /** 列表页只放最常用的几个菜系，详细的去「我的偏好」里选 */
@@ -27,15 +29,38 @@ export default function RestaurantList() {
   // 「排序更多餐厅」
   const [more, setMore] = useState(false)
 
+  // —— 新增：地址附近（搜索中心）——
+  const [near, setNear] = useState<NearAddress | null>(null)
+  // —— 新增：想去的品牌/餐厅（无论多远都展示）——
+  const [want, setWant] = useState('')
+
   const [list, setList] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [aiText, setAiText] = useState('')
   const [aiCtx, setAiCtx] = useState<any>(null)
   const [aiLoading, setAiLoading] = useState(false)
+  // 碰面中心（地图默认中心 + 地址选择器默认中心）
+  const [meetupCenter, setMeetupCenter] = useState<{ lat: number; lng: number } | null>(null)
+  // 被地图标记点中的卡片高亮
+  const [highlightId, setHighlightId] = useState<number | null>(null)
   const { mode } = useResponsive()
   const t = tokens(mode)
 
   const cols = mode === 'mobile' ? 1 : mode === 'tablet' ? 2 : 3
+
+  // 取碰面中心（用于地图与地址选择器默认中心）
+  useEffect(() => {
+    if (!code) return
+    api
+      .getMeetup(code)
+      .then((m: any) => {
+        if (m?.center_lat != null && m?.center_lng != null) {
+          setMeetupCenter({ lat: Number(m.center_lat), lng: Number(m.center_lng) })
+        }
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code])
 
   const load = async () => {
     if (!code) return
@@ -47,6 +72,14 @@ export default function RestaurantList() {
       if (nearSubway) params.near_subway = true
       if (bizDistrict) params.business_district = true
       if (more) params.more = true
+      // 地址附近：用自定义坐标作为检索中心
+      if (near) {
+        params.near_lat = near.lat
+        params.near_lng = near.lng
+        params.near_addr = near.addr
+      }
+      // 想去的品牌/餐厅：无视距离强制展示
+      if (want.trim()) params.want = want.trim()
       const res = await api.restaurants(code, params)
       setList(res || [])
     } catch {
@@ -94,6 +127,34 @@ export default function RestaurantList() {
       <Text style={{ fontSize: 13, color: on ? '#fff' : '#6b7280' }}>{label}</Text>
     </View>
   )
+
+  // 美食地图：标记可点击，跳转到对应餐厅卡片并高亮
+  const scrollToCard = (i: number) => {
+    setHighlightId(i)
+    setTimeout(() => setHighlightId(null), 1600)
+    const id = `rest-card-${i}`
+    if (typeof document !== 'undefined' && document.getElementById(id)) {
+      document.getElementById(id)!.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+    // 微信小程序：用 pageScrollTo 滚到该卡片
+    Taro.pageScrollTo({ selector: `#${id}`, duration: 300 } as any)
+  }
+
+  // 地图中心：优先用自定义的「地址附近」，否则碰面中心，否则第一个有坐标的餐厅
+  const mapCenter =
+    near
+      ? { lat: near.lat, lng: near.lng }
+      : meetupCenter ||
+        (list.find((r) => r.lat != null && r.lng != null)
+          ? { lat: list.find((r) => r.lat != null && r.lng != null)!.lat, lng: list.find((r) => r.lat != null && r.lng != null)!.lng }
+          : null)
+
+  // 仅取有坐标的餐厅作为标记，并保留原列表下标用于跳转
+  const markerList = list
+    .map((r, i) => ({ r, i }))
+    .filter((x) => x.r.lat != null && x.r.lng != null)
+  const markers = markerList.map((x) => ({ lat: x.r.lat, lng: x.r.lng, title: x.r.name }))
 
   return (
     <PageContainer
@@ -159,6 +220,41 @@ export default function RestaurantList() {
             {CUISINE_QUICK.map((c) => chip(c, cats.includes(c), () => toggleIn(cats, c, setCats)))}
           </View>
 
+          {/* —— 地址附近：选择搜索中心 —— */}
+          <Text style={{ display: 'block', marginTop: 14, fontSize: 13, color: '#2b2b2b', fontWeight: 600 }}>
+            地址附近
+          </Text>
+          <Text style={{ display: 'block', marginTop: 4, fontSize: 12, color: '#9ca3af', marginBottom: 8 }}>
+            默认在「碰面中心」附近找；也可选某个商圈 / 详细地址 / 某个碰面码的中心。
+          </Text>
+          <NearAddressPicker
+            defaultCenter={meetupCenter}
+            value={near}
+            onChange={setNear}
+            defaultLabel='碰面中心'
+          />
+
+          {/* —— 想去的品牌/餐厅：无视距离强制展示 —— */}
+          <Text style={{ display: 'block', marginTop: 14, fontSize: 13, color: '#2b2b2b', fontWeight: 600 }}>
+            想去的品牌 / 餐厅
+          </Text>
+          <Text style={{ display: 'block', marginTop: 4, fontSize: 12, color: '#9ca3af', marginBottom: 8 }}>
+            输入后无论多远都会至少搜到一个并展示，推荐理由为「你想吃 X」。
+          </Text>
+          <Input
+            placeholder='如：海底捞 / 麦当劳'
+            value={want}
+            onInput={(e) => setWant(e.detail.value)}
+            style={{
+              width: '100%',
+              background: '#fff',
+              border: '1px solid rgba(0,0,0,0.08)',
+              borderRadius: 10,
+              padding: '10px 12px',
+              fontSize: 14,
+            }}
+          />
+
           <View style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             <Button
               size='mini'
@@ -183,59 +279,81 @@ export default function RestaurantList() {
         </Section>
       )}
 
+      {/* —— 美食地图：标记每个推荐餐厅，点击跳转到卡片 —— */}
+      {code && list.length > 0 && mapCenter && (
+        <Section title='美食地图' icon='pin' tone='orange' extra={
+          <Text style={{ fontSize: 12, color: '#9ca3af' }}>点击标记查看餐厅</Text>
+        }>
+          <MapView center={mapCenter} markers={markers} onMarkerClick={(mi) => scrollToCard(markerList[mi].i)} />
+          <Text style={{ display: 'block', marginTop: 8, fontSize: 12, color: '#9ca3af' }}>
+            共 {markers.length} 家餐厅已标注；点标记可直达下方对应卡片。
+          </Text>
+        </Section>
+      )}
+
       {list.length > 0 && (
         <Section title={`共 ${list.length} 家`} icon='fork'>
           <View style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: 12 }}>
-            {list.map((r) => (
-              <View
-                key={r.id || r.name}
-                style={{
-                  padding: t.gap,
-                  background: '#fff',
-                  borderRadius: t.radius - 2,
-                  border: '1px solid rgba(0,0,0,0.04)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 6,
-                }}
-              >
-                {typeof r.photo === 'string' && r.photo.startsWith('https://') ? (
-                  <Image
-                    src={r.photo}
-                    mode='aspectFill'
-                    style={{ width: '100%', height: 120, borderRadius: 8, display: 'block' }}
-                  />
-                ) : null}
+            {list.map((r, i) => {
+              const highlighted = highlightId === i
+              return (
+                <View
+                  key={r.id || r.name}
+                  id={`rest-card-${i}`}
+                  style={{
+                    padding: t.gap,
+                    background: highlighted ? 'rgba(255,107,53,0.06)' : '#fff',
+                    borderRadius: t.radius - 2,
+                    border: highlighted ? '2px solid #ff6b35' : '1px solid rgba(0,0,0,0.04)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    scrollMarginTop: 80,
+                  }}
+                >
+                  {typeof r.photo === 'string' && r.photo.startsWith('https://') ? (
+                    <Image
+                      src={r.photo}
+                      mode='aspectFill'
+                      style={{ width: '100%', height: 120, borderRadius: 8, display: 'block' }}
+                    />
+                  ) : null}
 
-                <View style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Icon name='fork' size={16} color='#ff6b35' />
-                  <Text style={{ fontWeight: 700, color: '#2b2b2b', fontSize: 15 }}>{r.name}</Text>
+                  <View style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Icon name='fork' size={16} color='#ff6b35' />
+                    <Text style={{ fontWeight: 700, color: '#2b2b2b', fontSize: 15 }}>{r.name}</Text>
+                    {r.forced ? (
+                      <View style={{ padding: '1px 8px', borderRadius: 999, background: 'rgba(255,107,53,0.14)' }}>
+                        <Text style={{ fontSize: 11, color: '#ff6b35' }}>你想吃</Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  <View style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {r.business_area ? (
+                      <View style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(59,130,246,0.1)' }}>
+                        <Text style={{ fontSize: 11, color: '#3b82f6' }}>商圈 {r.business_area}</Text>
+                      </View>
+                    ) : null}
+                    {r.cuisine ? (
+                      <View style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(255,107,53,0.1)' }}>
+                        <Text style={{ fontSize: 11, color: '#ff6b35' }}>{r.cuisine}</Text>
+                      </View>
+                    ) : null}
+                    {r.source === 'mock' ? (
+                      <View style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(107,114,128,0.12)' }}>
+                        <Text style={{ fontSize: 11, color: '#6b7280' }}>示例数据</Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  <Text style={{ color: '#6b6b6b', fontSize: 12 }}>
+                    评分 {r.rating ?? '-'} · 人均 ¥{r.avg_price ?? '-'} · 综合 {r.score}
+                  </Text>
+                  <Text style={{ color: '#9ca3af', fontSize: 12, lineHeight: 1.6 }}>{r.reason}</Text>
                 </View>
-
-                <View style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {r.business_area ? (
-                    <View style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(59,130,246,0.1)' }}>
-                      <Text style={{ fontSize: 11, color: '#3b82f6' }}>商圈 {r.business_area}</Text>
-                    </View>
-                  ) : null}
-                  {r.cuisine ? (
-                    <View style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(255,107,53,0.1)' }}>
-                      <Text style={{ fontSize: 11, color: '#ff6b35' }}>{r.cuisine}</Text>
-                    </View>
-                  ) : null}
-                  {r.source === 'mock' ? (
-                    <View style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(107,114,128,0.12)' }}>
-                      <Text style={{ fontSize: 11, color: '#6b7280' }}>示例数据</Text>
-                    </View>
-                  ) : null}
-                </View>
-
-                <Text style={{ color: '#6b6b6b', fontSize: 12 }}>
-                  评分 {r.rating ?? '-'} · 人均 ¥{r.avg_price ?? '-'} · 综合 {r.score}
-                </Text>
-                <Text style={{ color: '#9ca3af', fontSize: 12, lineHeight: 1.6 }}>{r.reason}</Text>
-              </View>
-            ))}
+              )
+            })}
           </View>
         </Section>
       )}

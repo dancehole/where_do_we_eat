@@ -173,10 +173,20 @@ Preference(
 - [x] AI 推送（DeepSeek）：后端已封装并真实验证，无 Key 时优雅降级；前端「AI 推送」按钮已落地
 
 ### Phase 2 · 小程序基本功能
-- [ ] 小程序开屏介绍
-- [ ] 小程序发起碰面 + 微信地图 + 分享卡片
-- [ ] 小程序碰面列表 / 详情
-- [ ] 小程序餐厅推荐列表
+- [x] 小程序开屏介绍（splash 同套代码，H5/小程序通用）
+- [x] 小程序发起碰面 + 微信地图 + 分享卡片：`getLocation` 走 `Taro.getLocation`(gcj02) + 服务端逆地理编码补地址；`MapView` 用原生 `<Map>`；`meetup-detail` 已 `useShareAppMessage`（卡片带碰面 code）
+- [x] 小程序碰面列表 / 详情（同套页面，已编译通过）
+- [x] 小程序餐厅推荐列表（同套页面，已编译通过）
+- [x] 偏好页保存后 `navigateBack` 返回上一页（修复：原先停留不回退）
+- [x] 微信小程序用户认证：`app.tsx` 启动 `wx.login` → 后端 `/api/auth/wechat`(code2session) 拿 openid 持久化；未配 WECHAT_APPID/SECRET 时优雅回退设备匿名身份
+- [x] 小程序地址搜索 / 地图选点：新增后端 `/api/geo/geocode`(地址→坐标) 与 `/api/geo/regeo`(坐标→地址)，小程序端 `amapGeocode` / `MapPicker` 走服务端（小程序无浏览器、无法用高德 JS API）
+
+> ⚠️ 小程序端「接口地址」必须构建期注入 `API_BASE`（公网 https，已加入微信公众平台 request 合法域名）：
+> `API_BASE=https://你的后端域名 npm run build:weapp`。`config/index.ts` 的 `defineConstants` 已支持；
+> 未注入时 `getApiBase()` 回退 `localhost:8000`（仅微信开发者工具关掉 urlCheck 时能临时指向本机后端，真机不可用）。
+> 另：`Taro.getLocation` 需在微信公众平台开通「getLocation」接口并申请 `scope.userLocation`；
+> 真机 UI 验证需开发者工具/真机（本机无法跑，由人工在真机确认）。
+> **需要你逐项真机验证的事项目录见 [`docs/小程序真机验证.md`](docs/小程序真机验证.md)（带 TODO 勾选清单）。**
 
 ### Phase 3 · 补充 / 深化
 - [ ] 权重排序算法深化（可配置权重）

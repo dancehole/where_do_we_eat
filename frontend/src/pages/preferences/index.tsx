@@ -220,6 +220,13 @@ export default function Preferences() {
     try {
       await api.savePreferences(toBody())
       Taro.showToast({ title: '已保存', icon: 'success' })
+      // 保存成功后返回上一页（偏好为全局设置，返回即可在「我的」继续操作）。
+      // pages.length>1 才回退，避免偏好页作为入口页时被误关。
+      const pages = Taro.getCurrentPages()
+      if (pages.length > 1) {
+        // 延迟一点，确保「已保存」提示能被看到再回退
+        setTimeout(() => Taro.navigateBack(), 600)
+      }
     } catch {
       Taro.showToast({ title: '保存失败', icon: 'none' })
     } finally {

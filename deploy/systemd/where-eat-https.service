@@ -1,0 +1,17 @@
+[Unit]
+Description=WhereToEat HTTPS same-origin server (node https_server.js :8443)
+After=network.target where-eat-backend.service
+Wants=where-eat-backend.service
+
+[Service]
+Type=simple
+User=dancehole
+WorkingDirectory=/home/dancehole/project/where_do_we_go_to_eat
+ExecStart=/home/dancehole/.local/bin/node /home/dancehole/project/where_do_we_go_to_eat/https_server.js 8443 frontend/dist certs
+Restart=on-failure
+RestartSec=3
+StandardOutput=append:/home/dancehole/project/where_do_we_go_to_eat/frontend/logs/https.log
+StandardError=append:/home/dancehole/project/where_do_we_go_to_eat/frontend/logs/https.log
+
+[Install]
+WantedBy=multi-user.target

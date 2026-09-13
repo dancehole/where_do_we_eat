@@ -1,0 +1,16 @@
+[Unit]
+Description=WhereToEat frontend static server (node serve.js :3000)
+After=network.target
+
+[Service]
+Type=simple
+User=dancehole
+WorkingDirectory=/home/dancehole/project/where_do_we_go_to_eat
+ExecStart=/home/dancehole/.local/bin/node /home/dancehole/project/where_do_we_go_to_eat/serve.js 3000 frontend/dist
+Restart=on-failure
+RestartSec=3
+StandardOutput=append:/home/dancehole/project/where_do_we_go_to_eat/frontend/logs/frontend.log
+StandardError=append:/home/dancehole/project/where_do_we_go_to_eat/frontend/logs/frontend.log
+
+[Install]
+WantedBy=multi-user.target

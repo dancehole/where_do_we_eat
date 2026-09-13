@@ -380,8 +380,43 @@ export async function amapLocate(): Promise<GeoPoint> {
   throw new Error('定位失败：' + reasons.join('；'))
 }
 
+// 地址关键词 -> 坐标（微信小程序专用）：小程序无浏览器、无法加载高德 JS API，
+// 故地址搜索必须走服务端 Web 服务（后端 /api/geo/geocode）。返回候选列表供用户选择。
+async function weappGeocode(keyword: string): Promise<GeoPoint[]> {
+  const base = getApiBase()
+  const res: any = await Taro.request({
+    url: `${base}/api/geo/geocode?keyword=${encodeURIComponent(keyword)}`,
+    method: 'GET',
+  })
+  const d = res.data || {}
+  if (d.ok && Array.isArray(d.list) && d.list.length) {
+    return d.list.map((g: any) => ({ lat: Number(g.lat), lng: Number(g.lng), addr: g.addr }))
+  }
+  throw new Error(d.reason || '未找到该地点，换个关键词试试')
+}
+
+// 坐标 -> 可读地址（微信小程序专用）：小程序无法用高德 JS Geocoder，走服务端 /api/geo/regeo。
+export async function weappReverseGeocode(lat: number, lng: number): Promise<string> {
+  const base = getApiBase()
+  try {
+    const res: any = await Taro.request({
+      url: `${base}/api/geo/regeo?lat=${lat}&lng=${lng}`,
+      method: 'GET',
+    })
+    const d = res.data || {}
+    if (d.ok && d.addr) return d.addr
+  } catch {
+    /* ignore */
+  }
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+}
+
 // 地址关键词 -> 坐标（高德地理编码），返回候选列表供用户选择
 export async function amapGeocode(keyword: string): Promise<GeoPoint[]> {
+  // 微信小程序：无浏览器、无法加载高德 JS API，地址搜索走服务端 Web 服务
+  if (process.env.TARO_ENV === 'weapp') {
+    return weappGeocode(keyword)
+  }
   const AMap = await loadAMap()
   await withPlugin(AMap, 'AMap.Geocoder')
   const geocoder = new AMap.Geocoder({ city: '全国' })

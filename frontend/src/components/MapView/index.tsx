@@ -16,6 +16,8 @@ interface Props {
   markers?: MapMarker[]
   /** 自定义高度（像素）。不传则按设备模式自适应 */
   height?: number
+  /** 点击某个标记时回调（传入 markers 数组中的下标），用于美食地图跳转到对应餐厅卡片 */
+  onMarkerClick?: (index: number) => void
 }
 
 // 构建期常量：H5 构建时 Taro 会把 process.env.TARO_ENV 替换为字符串字面量，
@@ -40,13 +42,16 @@ let seq = 0
  *   ② ResizeObserver 监听容器尺寸变化并调用 map.resize()（侧栏/折叠展开后不白屏）
  *   ③ 初始化失败时把原因显示在容器上并上报后端 /api/debug/log，绝不静默空白
  */
-export default function MapView({ center, markers = [], height }: Props) {
+export default function MapView({ center, markers = [], height, onMarkerClick }: Props) {
   const { mode } = useResponsive()
   const h = height ?? defaultHeight(mode)
   const ref = useRef<any>(null)
   const mapRef = useRef<any>(null)
   const idRef = useRef<string>(`amap-canvas-${++seq}`)
   const [err, setErr] = useState('')
+  // 用 ref 持有最新回调，避免地图初始化时的闭包拿到旧值
+  const onMarkerClickRef = useRef(onMarkerClick)
+  onMarkerClickRef.current = onMarkerClick
 
   // 把对象/数组依赖序列化成字符串，避免每次父组件 render 都触发重建
   const centerKey = center ? `${center.lat},${center.lng}` : ''
@@ -130,8 +135,14 @@ export default function MapView({ center, markers = [], height }: Props) {
             }
             const map = mapRef.current
             if (typeof map.clearMap === 'function') map.clearMap()
-            markers.forEach((m) => {
-              new AMap.Marker({ position: [m.lng, m.lat], title: m.title, map })
+            markers.forEach((m, i) => {
+              const mk = new AMap.Marker({ position: [m.lng, m.lat], title: m.title, map })
+              // 点击标记 → 回调对应餐厅下标（美食地图跳转到卡片）
+              if (mk && typeof mk.on === 'function') {
+                mk.on('click', () => {
+                  if (onMarkerClickRef.current) onMarkerClickRef.current(i)
+                })
+              }
             })
             const all = [{ lng: center.lng, lat: center.lat }, ...markers]
             if (all.length >= 2 && typeof map.setFitView === 'function') {
@@ -173,9 +184,11 @@ export default function MapView({ center, markers = [], height }: Props) {
         /* ignore */
       }
       mapRef.current = null
-      const wrapper = document.getElementById(idRef.current)
-      const host = wrapper?.querySelector('div.amap-host')
-      if (host && host.parentNode) host.parentNode.removeChild(host)
+      if (typeof document !== 'undefined') {
+        const wrapper = document.getElementById(idRef.current)
+        const host = wrapper?.querySelector('div.amap-host')
+        if (host && host.parentNode) host.parentNode.removeChild(host)
+      }
     },
     []
   )
@@ -231,6 +244,10 @@ export default function MapView({ center, markers = [], height }: Props) {
       scale={12}
       markers={wxMarkers}
       style={{ width: '100%', height: h, marginTop: 12 }}
+      onMarkerTap={(e: any) => {
+        const id = e?.detail?.markerId
+        if (typeof id === 'number' && onMarkerClickRef.current) onMarkerClickRef.current(id)
+      }}
     />
   )
 }

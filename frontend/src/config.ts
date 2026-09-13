@@ -12,6 +12,18 @@ export function getApiBase(): string {
   const explicit = (process.env.API_BASE || '').trim()
   if (explicit) return explicit.replace(/\/+$/, '')
 
+  // 微信小程序没有 window，无法从当前页面推断后端地址；必须靠构建期注入的 API_BASE（公网 https）。
+  // 未配置时回退 localhost:8000：仅微信开发者工具（关闭 urlCheck）能临时指向本机后端；真机必须配置 API_BASE。
+  if (process.env.TARO_ENV === 'weapp') {
+    if (typeof console !== 'undefined') {
+      console.warn(
+        '[config] 小程序端未注入 API_BASE，请求将指向 localhost:8000（真机不可用）。' +
+          '请在构建时注入 API_BASE（公网 https 地址，并已加入小程序 request 合法域名）。'
+      )
+    }
+    return 'http://localhost:8000'
+  }
+
   if (typeof window !== 'undefined' && window.location && window.location.hostname) {
     const loc = window.location
     const { protocol, hostname } = loc

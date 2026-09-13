@@ -2,12 +2,37 @@
   "miniprogramRoot": "dist/",
   "projectname": "where-do-we-go-to-eat",
   "description": "我们去哪儿吃饭",
-  "appid": "touristappid",
+  "appid": "wx61853685ba268c68",
   "setting": {
     "urlCheck": false,
     "es6": false,
     "minified": false,
-    "postcss": false
+    "postcss": false,
+    "compileWorklet": false,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": true,
+    "enhance": false,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": false,
+    "swc": false,
+    "disableSWC": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
   },
-  "compileType": "miniprogram"
+  "compileType": "miniprogram",
+  "simulatorPluginLibVersion": {},
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "editorSetting": {}
 }

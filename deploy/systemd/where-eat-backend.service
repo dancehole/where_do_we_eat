@@ -1,0 +1,18 @@
+[Unit]
+Description=WhereToEat backend (uvicorn :8000)
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=dancehole
+WorkingDirectory=/home/dancehole/project/where_do_we_go_to_eat/backend
+# 必须用 venv 里的 python 显式起 uvicorn，否则会被解析到 ~/.local/bin/uvicorn（缺依赖）
+ExecStart=/home/dancehole/project/where_do_we_go_to_eat/backend/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info
+Restart=on-failure
+RestartSec=3
+StandardOutput=append:/home/dancehole/project/where_do_we_go_to_eat/backend/logs/backend.log
+StandardError=append:/home/dancehole/project/where_do_we_go_to_eat/backend/logs/backend.log
+
+[Install]
+WantedBy=multi-user.target

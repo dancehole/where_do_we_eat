@@ -34,7 +34,7 @@ export default function Splash() {
             marginBottom: 8,
           }}
         >
-          <Icon name='chopsticks' size={16} />
+          <Icon name='chopsticks' size={16} color='#ff6b35' />
           <Text>本地碰面 · 智能推荐</Text>
         </View>
 

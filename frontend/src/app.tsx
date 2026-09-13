@@ -1,6 +1,7 @@
 import { PropsWithChildren } from 'react'
 import { useLaunch } from '@tarojs/taro'
 import { reportDebug } from './utils/debug'
+import { weappLogin } from './utils/user'
 import './styles/global.css'
 
 // 过滤三方注入脚本的无害报错（只针对这一个高度特征化的错误，不做通用吞错）：
@@ -40,6 +41,10 @@ if (process.env.TARO_ENV === 'h5') {
 function App({ children }: PropsWithChildren) {
   useLaunch(() => {
     console.log('App launched.')
+    // 微信小程序：启动时用 wx.login 换 openid，作为稳定的微信匿名身份（失败不影响使用，回退设备匿名）
+    if (process.env.TARO_ENV === 'weapp') {
+      weappLogin().catch(() => {})
+    }
   })
   return children
 }

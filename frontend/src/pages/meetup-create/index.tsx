@@ -8,7 +8,7 @@ import Section from '../../components/Section'
 import Icon from '../../components/Icon'
 import MapView from '../../components/MapView'
 import MapPicker from '../../components/MapPicker'
-import { amapLocate, amapGeocode, getLocateEnv } from '../../utils/amap'
+import { amapLocate, amapGeocode, getLocateEnv, weappReverseGeocode } from '../../utils/amap'
 import { joinKey } from '../../components/JoinMeetup'
 import { useResponsive, tokens } from '../../hooks/useResponsive'
 
@@ -70,7 +70,9 @@ export default function MeetupCreate() {
       }
       const res = await Taro.getLocation({ type: 'gcj02' })
       setLoc({ lat: res.latitude, lng: res.longitude })
-      setAddr(`${res.latitude.toFixed(4)}, ${res.longitude.toFixed(4)}`)
+      // 小程序端 Taro.getLocation 只给坐标，用服务端逆地理编码补一个可读地址
+      const a = await weappReverseGeocode(res.latitude, res.longitude).catch(() => '')
+      setAddr(a || `${res.latitude.toFixed(4)}, ${res.longitude.toFixed(4)}`)
     } catch (e: any) {
       Taro.showToast({ title: '自动定位失败，请看下方原因', icon: 'none' })
       setLocHint('自动定位失败：' + (e?.message || '未知原因') + '（可点「手动选择位置」）')

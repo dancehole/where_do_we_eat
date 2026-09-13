@@ -2,7 +2,7 @@ import random
 import string
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -233,6 +233,13 @@ def get_restaurants(
     if m.center_lat is None:
         _ensure_center(m, db)
 
+    # 搜索中心：默认用「碰面中心」；若前端传了「地址附近」自定义坐标，则用它
+    # （高德周边检索的 distance 字段也会相对该点计算，地图/距离展示才一致）。
+    if f.get("near_lat") is not None and f.get("near_lng") is not None:
+        search_lat, search_lng = float(f["near_lat"]), float(f["near_lng"])
+    else:
+        search_lat, search_lng = float(m.center_lat), float(m.center_lng)
+
     # 用户偏好：碰面专属 → 全局（设置页保存的是全局）
     prefs = prefs_api.prefs_of(db, user.id, m.id)
 
@@ -255,7 +262,7 @@ def get_restaurants(
 
     # 候选池：默认 1 页（≤25 条）；勾选「排序更多餐厅」则翻 4 页（≤100 条）
     raw = amap.search_restaurants(
-        float(m.center_lat), float(m.center_lng),
+        search_lat, search_lng,
         radius=radius, max_count=100 if more else 25, pages=4 if more else 1,
     )
     source = "amap"
@@ -264,7 +271,7 @@ def get_restaurants(
     liked = [c for c in (prefs.get("cuisine_include") or []) if c]
     if liked:
         extra = amap.search_restaurants(
-            float(m.center_lat), float(m.center_lng),
+            search_lat, search_lng,
             radius=radius, keywords="|".join(liked), types="餐饮服务",
             max_count=25, pages=1,
         )
@@ -288,9 +295,50 @@ def get_restaurants(
 
     scored = rank.score_restaurants(raw, f, prefs)
 
+    # 「想去的品牌/餐厅」：无视距离，用大半径关键词检索该品牌，强制纳入推荐列表。
+    # 范围内的多个分店全部列出；理由统一为「你想吃 X」。
+    forced: List[Dict] = []
+    want = (f.get("want") or "").strip()
+    if want:
+        want_matches = amap.search_restaurants(
+            search_lat, search_lng,
+            radius=50000, keywords=want, types="餐饮服务",
+            max_count=10, pages=1,
+        )
+        seen_want = set()
+        for wm in want_matches:
+            wk = f"{wm.get('name')}|{wm.get('lat')}|{wm.get('lng')}"
+            if wk in seen_want:
+                continue
+            seen_want.add(wk)
+            fm = dict(wm)
+            fm["reason"] = f"你想吃 {want}"
+            fm["forced"] = True
+            forced.append(fm)
+
+    # 合并 forced：命中已有候选的覆盖 reason；超出半径（不在 scored 内）的补到列表最前，保证一定展示。
+    scored_keys = {f"{r.get('name')}|{r.get('lat')}|{r.get('lng')}" for r in scored}
+    final: List[Dict] = []
+    for r in scored:
+        rk = f"{r.get('name')}|{r.get('lat')}|{r.get('lng')}"
+        hit = next((fr for fr in forced if f"{fr.get('name')}|{fr.get('lat')}|{fr.get('lng')}" == rk), None)
+        if hit:
+            rr = dict(r)
+            rr["reason"] = hit["reason"]
+            rr["forced"] = True
+            final.append(rr)
+        else:
+            final.append(r)
+    for fr in forced:
+        fk = f"{fr.get('name')}|{fr.get('lat')}|{fr.get('lng')}"
+        if fk not in scored_keys:
+            fr2 = dict(fr)
+            fr2["score"] = fr2.get("score") if fr2.get("score") is not None else 60.0
+            final.insert(0, fr2)
+
     # 缓存到 restaurants 表
     db.query(Restaurant).filter(Restaurant.meetup_id == m.id).delete()
-    for r in scored:
+    for r in final:
         db.add(Restaurant(
             id=str(uuid.uuid4()), meetup_id=m.id, source=source,
             name=r["name"], lat=r.get("lat"), lng=r.get("lng"),
@@ -300,10 +348,10 @@ def get_restaurants(
             score=r.get("score"), reason=r.get("reason"),
         ))
     db.commit()
-    for r in scored:
+    for r in final:
         r["source"] = source
     # 默认返回 20 家；勾选「排序更多餐厅」时返回 25 家
-    return scored[: 25 if more else 20]
+    return final[: 25 if more else 20]
 
 
 @router.post("/{code}/preferences")

@@ -1,4 +1,5 @@
 import Taro from '@tarojs/taro'
+import { getApiBase } from '../config'
 
 /**
  * 匿名用户身份（免登录）。
@@ -65,4 +66,37 @@ export async function fetchWechatNickname(): Promise<string | null> {
     // 用户拒绝授权或环境不支持：静默返回 null，UI 回退到手动输入
   }
   return null
+}
+
+const WECHAT_OPENID_KEY = 'wechat_openid'
+
+/**
+ * 微信小程序登录：wx.login() 拿 code → 后端 code2session 换 openid（匿名身份）。
+ * - 仅小程序环境调用；未配置 WECHAT_APPID/SECRET 时后端返回 ok:False，这里静默回退到设备匿名身份。
+ * - openid 持久化到 storage，作为更稳定的微信身份（与 device_id 并行，不破坏现有逻辑）。
+ */
+export async function weappLogin(): Promise<string | null> {
+  if (!isWeapp()) return null
+  try {
+    const res: any = await Taro.login()
+    const code = res?.code
+    if (!code) return null
+    const r: any = await Taro.request({
+      url: `${getApiBase()}/api/auth/wechat?code=${code}`,
+      method: 'GET',
+    })
+    const d = r.data || {}
+    if (d.ok && d.openid) {
+      Taro.setStorageSync(WECHAT_OPENID_KEY, d.openid)
+      return d.openid
+    }
+  } catch {
+    // 网络/后端异常：忽略，继续使用设备匿名身份
+  }
+  return null
+}
+
+/** 已持久化的微信 openid（可能为空） */
+export function getWechatOpenid(): string {
+  return Taro.getStorageSync(WECHAT_OPENID_KEY) || ''
 }

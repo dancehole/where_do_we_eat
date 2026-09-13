@@ -1,7 +1,7 @@
-import { View, Text } from '@tarojs/components'
+import { View, Text, Map } from '@tarojs/components'
 import { useEffect, useRef, useState } from 'react'
 import { AMAP_JS_KEY } from '../config'
-import { loadAMap, getAMapLastError } from '../utils/amap'
+import { loadAMap, getAMapLastError, weappReverseGeocode } from '../utils/amap'
 import { reportDebug } from '../utils/debug'
 
 // 构建期常量：仅 H5 渲染（小程序端请用原生 <Map> / Taro.chooseLocation）
@@ -42,6 +42,8 @@ export default function MapPicker({ center, onChange, height = 260 }: Props) {
   onChangeRef.current = onChange
   const [err, setErr] = useState('')
   const [addr, setAddr] = useState('')
+  // 微信小程序端：记录用户点击的点（用于显示标记）
+  const [tapPoint, setTapPoint] = useState<{ lat: number; lng: number } | null>(null)
 
   const centerKey = center ? `${center.lat},${center.lng}` : ''
 
@@ -173,7 +175,44 @@ export default function MapPicker({ center, onChange, height = 260 }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerKey, AMAP_JS_KEY])
 
-  if (!IS_H5) return null
+  if (!IS_H5) {
+    // 微信小程序：原生 <Map> 选点（自带地图，坐标用 gcj02，与高德一致）。
+    // 小程序无浏览器、无法加载高德 JS API，故点击地图后用服务端 /api/geo/regeo 反查地址。
+    const initLat = center?.lat ?? 39.90923
+    const initLng = center?.lng ?? 116.397428
+    const wxMarkers = tapPoint
+      ? [{ id: 0, latitude: tapPoint.lat, longitude: tapPoint.lng, width: 24, height: 24 }]
+      : []
+    const onWeappTap = async (e: any) => {
+      const lat = Number(e?.detail?.latitude)
+      const lng = Number(e?.detail?.longitude)
+      if (!lat || !lng) return
+      const a = await weappReverseGeocode(lat, lng)
+      setTapPoint({ lat, lng })
+      setAddr(a)
+      onChangeRef.current({ lat, lng, addr: a })
+    }
+    return (
+      <View>
+        <Map
+          longitude={initLng}
+          latitude={initLat}
+          scale={12}
+          markers={wxMarkers}
+          style={{ width: '100%', height, borderRadius: 10 }}
+          onTap={onWeappTap}
+        />
+        <Text style={{ display: 'block', marginTop: 6, fontSize: 12, color: '#6b6b6b' }}>
+          点击地图任意位置选点（小程序地图暂不支持拖动标记）
+        </Text>
+        {addr ? (
+          <Text style={{ display: 'block', marginTop: 2, fontSize: 12, color: '#ff6b35', wordBreak: 'break-word' }}>
+            已选：{addr}
+          </Text>
+        ) : null}
+      </View>
+    )
+  }
 
   return (
     <View>

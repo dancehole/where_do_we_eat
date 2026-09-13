@@ -10,6 +10,8 @@ router = APIRouter(prefix="/api/geo", tags=["geo"])
 
 AMAP_IP_URL = "https://restapi.amap.com/v3/ip"
 AMAP_CONVERT_URL = "https://restapi.amap.com/v3/assistant/coordinate/convert"
+AMAP_GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
+AMAP_REGEO_URL = "https://restapi.amap.com/v3/geocode/regeo"
 
 
 def _amap_ip(key: str, ip: Optional[str] = None):
@@ -143,3 +145,85 @@ def ip_locate(request: Request, ip: Optional[str] = None):
         }
 
     return {"ok": False, "reason": "当前网络出口 IP 无法解析到城市，请改用「手动选择」精确定位"}
+
+
+def _amap_geocode(key: str, keyword: str, city: str = ""):
+    """高德地理编码：地址关键词 → 候选坐标列表（GCJ-02）。返回 [{lat,lng,addr}] 或 []。
+
+    供「微信小程序」端使用：小程序无浏览器、无法加载高德 JS API，地址搜索只能走服务端 Web 服务。
+    """
+    if not key or not keyword:
+        return []
+    params = {"key": key, "address": keyword}
+    if city:
+        params["city"] = city
+    try:
+        r = requests.get(AMAP_GEOCODE_URL, params=params, timeout=8)
+        data = r.json()
+    except Exception as e:
+        logging.warning("[geo] 高德地理编码请求失败: %s", e)
+        return []
+    if data.get("status") != "1":
+        logging.warning("[geo] 高德地理编码错误: %s %s", data.get("info"), data.get("infocode"))
+        return []
+    out = []
+    for g in data.get("geocodes") or []:
+        loc = g.get("location") or ""
+        try:
+            lng, lat = (float(x) for x in loc.split(","))
+        except (ValueError, TypeError):
+            continue
+        out.append({"lat": lat, "lng": lng, "addr": g.get("formatted_address") or keyword})
+        if len(out) >= 10:
+            break
+    return out
+
+
+def _amap_regeo(key: str, lat: float, lng: float):
+    """高德逆地理编码：坐标（GCJ-02）→ 可读地址。返回 addr 或 ''。
+
+    供「微信小程序」端地图选点后反查地址使用（小程序无法用高德 JS Geocoder）。
+    """
+    if not key:
+        return ""
+    try:
+        r = requests.get(
+            AMAP_REGEO_URL,
+            params={"key": key, "location": f"{lng},{lat}", "extensions": "base", "radius": 1000},
+            timeout=8,
+        )
+        data = r.json()
+    except Exception as e:
+        logging.warning("[geo] 高德逆地理编码请求失败: %s", e)
+        return ""
+    if data.get("status") != "1":
+        return ""
+    return (data.get("regeocode") or {}).get("formatted_address") or ""
+
+
+@router.get("/geocode")
+def geocode(keyword: str = "", city: str = ""):
+    """地址关键词 → 坐标候选列表（GCJ-02）。微信小程序端地址搜索走这个（无高德 JS）。"""
+    key = settings.AMAP_WEB_KEY
+    if not key:
+        return {"ok": False, "reason": "未配置 AMAP_WEB_KEY", "list": []}
+    if not keyword:
+        return {"ok": False, "reason": "缺少 keyword", "list": []}
+    list_ = _amap_geocode(key, keyword, city)
+    if not list_:
+        return {"ok": False, "reason": "未找到匹配地点", "list": []}
+    return {"ok": True, "list": list_}
+
+
+@router.get("/regeo")
+def regeo(lat: float = 0.0, lng: float = 0.0):
+    """坐标（GCJ-02）→ 可读地址。微信小程序端地图选点后反查地址用。"""
+    key = settings.AMAP_WEB_KEY
+    if not key:
+        return {"ok": False, "reason": "未配置 AMAP_WEB_KEY", "addr": ""}
+    if not lat or not lng:
+        return {"ok": False, "reason": "缺少 lat/lng", "addr": ""}
+    addr = _amap_regeo(key, lat, lng)
+    if not addr:
+        return {"ok": False, "reason": "逆地理编码失败", "addr": ""}
+    return {"ok": True, "addr": addr}

@@ -57,6 +57,15 @@ class RestaurantFilter(BaseModel):
     # 勾选「排序更多餐厅」：翻更多页拉候选，再取评分最好的前 25 家参与排序
     more: Optional[bool] = None
 
+    # —— 地址附近：用自定义坐标作为检索中心，替代「碰面中心」 ——
+    # 来自地图选点 / 文字搜索（商圈·详细地址）/ 某个碰面码计算的中心。
+    near_lat: Optional[float] = None
+    near_lng: Optional[float] = None
+    near_addr: Optional[str] = None
+
+    # —— 想去的品牌/餐厅：输入后无论多远都保证至少搜到一个并展示，理由「你想吃 X」 ——
+    want: Optional[str] = None
+
 
 class PreferenceIn(BaseModel):
     """用户偏好。空列表 = 清空该项；不传 = 保持原值（整体覆盖式保存）。"""

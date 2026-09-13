@@ -1,7 +1,22 @@
-/* 全局基础样式（H5 专用，由 app.tsx 引入）
-   响应式尺寸主要由 JS（useResponsive）控制；此处负责主题色、排版、滚动条与背景纹理兜底。 */
+/* 全局基础样式（H5 + 微信小程序共用，由 app.tsx 引入）
+   注意：微信 WXSS 不认识通用选择器 `*`、`::-webkit-scrollbar`、`::selection` 等，
+   编译会报 `unexpected token '*'`。因此这里只用两端都能解析的写法，
+   桌面端滚动条/选中色等纯装饰交给浏览器默认即可。 */
 
-* {
+/* 统一盒模型：避免用 `*` 通用选择器（WXSS 不支持），改为显式列出常用元素 */
+html,
+body,
+page,
+view,
+text,
+button,
+input,
+textarea,
+image,
+navigator,
+scroll-view,
+form,
+label {
   box-sizing: border-box;
 }
 
@@ -17,31 +32,14 @@ body {
   background: #fff7ed;
 }
 
+/* 小程序根节点（H5 下无 page 元素，规则不生效，无副作用） */
+page {
+  min-height: 100vh;
+  background: #fff7ed;
+}
+
 #app {
   min-height: 100vh;
-}
-
-/* 细腻的暖色滚动条（桌面端更明显） */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 107, 53, 0.35);
-  border-radius: 8px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 107, 53, 0.55);
-  background-clip: content-box;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::selection {
-  background: rgba(255, 107, 53, 0.22);
 }
 
 /* 让 Taro 的 Button 在小屏也更易点（桌面端由内联样式统一控制） */
@@ -59,22 +57,23 @@ button {
   min-height: 200px;
 }
 
-/* Taro 的 View 渲染为自定义元素 <taro-view-core>。虽然 Taro 运行时会注入
+/* Taro 的 View 在 H5 渲染为自定义元素 <taro-view-core>。虽然 Taro 运行时会注入
    display:block，但样式注入晚于首次渲染时会出现瞬间高度塌陷、高德初始化拿到 0 高度而白屏，
-   这里在静态 CSS 里再兜一层。 */
+   这里在静态 CSS 里再兜一层。小程序下无此元素，规则不生效。 */
 .map-canvas > taro-view-core {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-/* 高德地图真正的宿主容器（原生 div，由 MapView 动态创建）。
+/* 高德地图真正的宿主容器（原生 div，由 MapView 动态创建，仅 H5 生效）。
    高德 JSAPI 无法在 Taro 的 <taro-view-core> 自定义元素上初始化，必须用原生 div。 */
 .amap-host {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
 }
-
-
