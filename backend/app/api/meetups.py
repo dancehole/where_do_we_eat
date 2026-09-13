@@ -233,13 +233,6 @@ def get_restaurants(
     if m.center_lat is None:
         _ensure_center(m, db)
 
-    # 搜索中心：默认用「碰面中心」；若前端传了「地址附近」自定义坐标，则用它
-    # （高德周边检索的 distance 字段也会相对该点计算，地图/距离展示才一致）。
-    if f.get("near_lat") is not None and f.get("near_lng") is not None:
-        search_lat, search_lng = float(f["near_lat"]), float(f["near_lng"])
-    else:
-        search_lat, search_lng = float(m.center_lat), float(m.center_lng)
-
     # 用户偏好：碰面专属 → 全局（设置页保存的是全局）
     prefs = prefs_api.prefs_of(db, user.id, m.id)
 
@@ -259,6 +252,13 @@ def get_restaurants(
     radius = int(f.get("radius") or prefs.get("radius") or 3000)
     f["radius"] = radius
     more = bool(f.get("more"))
+
+    # 搜索中心：默认用「碰面中心」；若前端传了「地址附近」自定义坐标，则用它
+    # （高德周边检索的 distance 字段也会相对该点计算，地图/距离展示才一致）。
+    if f.get("near_lat") is not None and f.get("near_lng") is not None:
+        search_lat, search_lng = float(f["near_lat"]), float(f["near_lng"])
+    else:
+        search_lat, search_lng = float(m.center_lat), float(m.center_lng)
 
     # 候选池：默认 1 页（≤25 条）；勾选「排序更多餐厅」则翻 4 页（≤100 条）
     raw = amap.search_restaurants(
