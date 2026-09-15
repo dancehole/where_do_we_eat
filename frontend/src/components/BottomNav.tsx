@@ -4,11 +4,12 @@ import Icon, { IconName } from './Icon'
 import { useStore } from '../store'
 import { useResponsive } from '../hooks/useResponsive'
 
-export type TabKey = 'home' | 'meetup' | 'eat' | 'mine'
+export type TabKey = 'home' | 'schedule' | 'meetup' | 'eat' | 'mine'
 
-// 四个分类（类似小程序的 tabBar），点击即可一键回到对应页面
+// 分类（类似小程序的 tabBar），点击即可一键回到对应页面
 export const TABS: { key: TabKey; label: string; icon: IconName; path: string }[] = [
-  { key: 'home', label: '首页', icon: 'home', path: '/pages/splash/index' },
+  { key: 'home', label: '首页', icon: 'home', path: '/pages/home/index' },
+  { key: 'schedule', label: '排期', icon: 'calendar', path: '/pages/schedule-list/index' },
   { key: 'meetup', label: '碰面', icon: 'users', path: '/pages/meetup-list/index' },
   { key: 'eat', label: '吃饭', icon: 'fork', path: '/pages/restaurant-list/index' },
   { key: 'mine', label: '我的', icon: 'user', path: '/pages/mine/index' },

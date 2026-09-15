@@ -1,6 +1,6 @@
 from pydantic import BaseModel
-from typing import Optional, List
-from datetime import datetime
+from typing import Optional, List, Dict, Any
+from datetime import datetime, date
 
 
 class LocationIn(BaseModel):
@@ -133,3 +133,72 @@ class AIRecommendIn(BaseModel):
     budget: Optional[float] = None
     prefers: Optional[str] = None
     restaurants: Optional[List[dict]] = None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 排期（多人约时间）
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ScheduleParticipantOut(BaseModel):
+    id: str
+    nickname: str
+    avatar: Optional[str] = None
+    wechat_id: Optional[str] = None
+    # 本人的有空数据（详情/编辑时随本人返回；合并图由 /merge 聚合，不在这里展开）
+    availability: Optional[Dict[str, Any]] = None
+
+
+class ScheduleOut(BaseModel):
+    id: str
+    code: str
+    title: str
+    description: Optional[str] = None
+    start_date: date
+    end_date: date
+    granular_hours: bool
+    status: str
+    creator_id: Optional[str] = None
+    is_creator: Optional[bool] = None
+    created_at: datetime
+    closed_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    participant_count: int
+    participants: List[ScheduleParticipantOut] = []
+    share_url: Optional[str] = None
+    # 本次操作者在此排期中的参与者 id（创建者/刚加入的人），前端持久化以识别「我」
+    my_participant_id: Optional[str] = None
+    # 本人的 availability（仅当传入有效 pid 或本人是创建者时返回）
+    my_availability: Optional[Dict[str, Any]] = None
+
+
+class ScheduleCreate(BaseModel):
+    """创建排期：标题/描述/时间段/是否精确到小时。"""
+    title: str
+    description: Optional[str] = None
+    start_date: date
+    end_date: date
+    granular_hours: bool = False
+    nickname: Optional[str] = None
+    avatar: Optional[str] = None
+    wechat_id: Optional[str] = None
+
+
+class ScheduleMetaUpdate(BaseModel):
+    """修改排期元信息（任意字段可空；时间段可后续修改）。"""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    granular_hours: Optional[bool] = None
+
+
+class ScheduleJoinIn(BaseModel):
+    nickname: Optional[str] = None
+    avatar: Optional[str] = None
+    wechat_id: Optional[str] = None
+
+
+class AvailabilityIn(BaseModel):
+    """保存本人作答：整体 upsert 本人的 availability JSON。"""
+    participant_id: str
+    availability: Dict[str, Any]

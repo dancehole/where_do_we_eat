@@ -40,7 +40,7 @@ export interface PageContainerProps {
  * 统一页面布局：
  *  1) 固定全屏背景（背景图 + 暖色渐变 + 半透明白色蒙版）
  *  2) 居中内容卡片（玻璃拟态：半透白 + 模糊 + 圆角 + 细描边）
- *  3) 顶部返回/面包屑 + 底部四分类导航（首页/碰面/吃饭/我的）
+ *  3) 顶部返回/面包屑 + 底部五分类导航（首页/排期/碰面/吃饭/我的）
  *  4) PC/平板端限制最大宽度并保留侧边留白，让背景可见；手机端保留小内边距
  *  仅 H5 有背景效果（小程序不响应此容器）
  */
@@ -74,7 +74,7 @@ export default function PageContainer({
   const onBack = () => {
     const pages = Taro.getCurrentPages()
     if (pages.length > 1) Taro.navigateBack()
-    else Taro.redirectTo({ url: '/pages/splash/index' })
+    else Taro.redirectTo({ url: '/pages/home/index' })
   }
 
   return (

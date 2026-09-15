@@ -1,9 +1,9 @@
 from sqlalchemy import (
     Column, String, DateTime, Enum as SAEnum, DECIMAL,
-    ForeignKey, JSON, Text, Integer,
+    ForeignKey, JSON, Text, Integer, Date,
 )
 from sqlalchemy.orm import relationship
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 import uuid
 from .core.database import Base
 
@@ -114,3 +114,48 @@ class Preference(Base):
     note = Column(Text, nullable=True)
 
     updated_at = Column(DateTime, default=_now, onupdate=_now)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 排期（多人约时间）：与「碰面」解耦，碰面解决「地点」，排期解决「时间」
+# ─────────────────────────────────────────────────────────────────────────────
+
+class Schedule(Base):
+    """排期表：发起者定一个时间段，自己/他人勾选有空状态，合并出热度日历。"""
+
+    __tablename__ = "schedules"
+    id = Column(String(36), primary_key=True, default=_uuid)
+    code = Column(String(8), unique=True, index=True)
+    creator_id = Column(String(36), ForeignKey("users.id"))
+    title = Column(String(128))
+    description = Column(Text, nullable=True)
+    # 时间段（含两端）
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    # 是否精确到小时（开启后按 6 个固定 2 小时槽位标记）
+    granular_hours = Column(String(1), default="0")  # '0'|'1'
+    # open=可编辑；closed=发起者已锁定（如确定好、买票了）
+    status = Column(SAEnum("open", "closed"), default="open")
+    created_at = Column(DateTime, default=_now)
+    closed_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
+
+    participants = relationship(
+        "ScheduleParticipant", back_populates="schedule", cascade="all, delete-orphan"
+    )
+
+
+class ScheduleParticipant(Base):
+    """排期参与者：一人一行，本人作答直接存 availability JSON（整体 upsert）。"""
+
+    __tablename__ = "schedule_participants"
+    id = Column(String(36), primary_key=True, default=_uuid)
+    schedule_id = Column(String(36), ForeignKey("schedules.id"))
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    nickname = Column(String(64))
+    avatar = Column(String(512), nullable=True)        # 微信头像 URL
+    wechat_id = Column(String(128), nullable=True, index=True)  # 微信 openid
+    # 本人的有空数据：{ "YYYY-MM-DD": { "day": level|null, "slots": { slot: level|null } } }
+    availability = Column(JSON, nullable=True)
+    joined_at = Column(DateTime, default=_now)
+    schedule = relationship("Schedule", back_populates="participants")

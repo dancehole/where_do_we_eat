@@ -4,7 +4,11 @@
 // 直接导出纯对象即可（defineAppConfig 仅是类型辅助）。
 export default {
   pages: [
-    'pages/splash/index',
+    'pages/home/index',
+    'pages/schedule-list/index',
+    'pages/schedule-create/index',
+    'pages/schedule-detail/index',
+    'pages/schedule-merge/index',
     'pages/meetup-create/index',
     'pages/meetup-list/index',
     'pages/meetup-detail/index',

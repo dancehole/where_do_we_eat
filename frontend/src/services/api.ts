@@ -55,4 +55,22 @@ export const api = {
     request('/api/preferences/parse', { method: 'POST', data: { text } }),
 
   aiRecommend: (body: any) => request('/api/ai/recommend', { method: 'POST', data: body }),
+
+  // ── 排期（多人约时间） ──
+  createSchedule: (body: any) => request('/api/schedules', { method: 'POST', data: body }),
+  getSchedule: (code: string, pid?: string) =>
+    request(`/api/schedules/${code}${pid ? `?pid=${encodeURIComponent(pid)}` : ''}`),
+  updateSchedule: (code: string, body: any) =>
+    request(`/api/schedules/${code}`, { method: 'PATCH', data: body }),
+  joinSchedule: (code: string, body: any) =>
+    request(`/api/schedules/${code}/join`, { method: 'POST', data: body }),
+  saveAvailability: (code: string, participantId: string, availability: any) =>
+    request(`/api/schedules/${code}/availability`, {
+      method: 'PUT',
+      data: { participant_id: participantId, availability },
+    }),
+  mergeSchedule: (code: string) => request(`/api/schedules/${code}/merge`),
+  closeSchedule: (code: string) => request(`/api/schedules/${code}/close`, { method: 'POST' }),
+  openSchedule: (code: string) => request(`/api/schedules/${code}/open`, { method: 'POST' }),
+  listMySchedules: () => request('/api/schedules/mine'),
 }

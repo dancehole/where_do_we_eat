@@ -5,6 +5,7 @@ from .api import debug
 from .api import geo
 from .api import preferences
 from .api import wechat
+from .api import schedules
 
 app = FastAPI(title="Where Do We Go To Eat?")
 app.add_middleware(
@@ -21,6 +22,7 @@ app.include_router(debug.router)
 app.include_router(geo.router)
 app.include_router(preferences.router)
 app.include_router(wechat.router)
+app.include_router(schedules.router)
 
 
 @app.get("/")
