@@ -1,8 +1,16 @@
-import { View, Text, ScrollView } from '@tarojs/components'
+import { Fragment } from 'react'
+import { View, Text } from '@tarojs/components'
 import {
   BUCKET_COLORS, BUCKET_LABELS, formatDateLabel, todayStr, recommendDay, runnerUpDays, DayRank,
+  shortDate, weekdayLabel, splitSlot,
 } from '../utils/schedule'
 import ScheduleMonthGrid from './ScheduleMonthGrid'
+
+/* 与 ScheduleGridEditor 保持同一套窄屏尺寸（自适应铺满，塞不下可横向拖动） */
+const LABEL_W = 46
+const CELL_MIN = 34
+const GAP = 4
+const MIN_W_BASE = LABEL_W + 7 * CELL_MIN + 7 * GAP + 16
 
 interface Props {
   merge: any
@@ -83,82 +91,112 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
       )}
 
       {granular ? (
-        /* ── 精确到小时：日期 × 6 时段的横向矩阵 ── */
-        <ScrollView
-          scrollX
+        /* ── 精确到小时：日期 × 6 时段矩阵（能铺满就铺满，塞不下可横向拖动） ── */
+        <View
           style={{
-            width: '100%', border: '1px solid rgba(0,0,0,0.06)', borderRadius: 10,
-            background: '#fff', overflow: 'hidden',
+            display: 'block', width: '100%', boxSizing: 'border-box',
+            border: '1px solid rgba(0,0,0,0.06)', borderRadius: 10,
+            background: '#fff', overflowX: 'auto', WebkitOverflowScrolling: 'touch',
           }}
         >
-          <View style={{ display: 'inline-block', minWidth: '100%', padding: 8 }}>
-            <View style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-              <View style={{ width: 72, flexShrink: 0 }} />
-              <View style={{ width: 46, flexShrink: 0, textAlign: 'center', fontSize: 11, color: '#9ca3af' }}>
+          <View style={{ display: 'block', padding: 8, minWidth: MIN_W_BASE, boxSizing: 'border-box' }}>
+            <View
+              style={{
+                display: 'grid',
+                gridTemplateColumns: `${LABEL_W}px repeat(${slots.length + 1}, minmax(${CELL_MIN}px, 1fr))`,
+                gap: GAP,
+              }}
+            >
+              {/* 表头 */}
+              <View />
+              <View
+                style={{
+                  fontSize: 10, textAlign: 'center', color: '#9ca3af',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
                 全天
               </View>
-              {slots.map((s) => (
-                <View key={s} style={{ minWidth: 46, textAlign: 'center', fontSize: 10, color: '#9ca3af', padding: '2px 0' }}>
-                  {s}
-                </View>
-              ))}
-            </View>
-
-            {days.map((d) => {
-              const isToday = d === today
-              const dc = dayBucket(d)
-              const isBest = best?.date === d
-              return (
-                <View key={d} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'stretch' }}>
+              {slots.map((s) => {
+                const [st, en] = splitSlot(s)
+                return (
                   <View
+                    key={s}
                     style={{
-                      width: 72, flexShrink: 0, display: 'flex', alignItems: 'center',
-                      fontSize: 12, color: isToday ? '#ff6b35' : '#2b2b2b',
-                      fontWeight: isToday ? 700 : 500, paddingRight: 4,
+                      textAlign: 'center', color: '#9ca3af',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                     }}
                   >
-                    {formatDateLabel(d)}
-                    {isBest ? <Text style={{ color: '#ff6b35', marginLeft: 2 }}>★</Text> : null}
+                    <Text style={{ fontSize: 9, lineHeight: 1.25 }}>{st}</Text>
+                    <Text style={{ fontSize: 9, lineHeight: 1.25 }}>{en}</Text>
                   </View>
+                )
+              })}
 
-                  {/* 全天格 */}
-                  <View
-                    onClick={() => onCellClick && onCellClick(d, null)}
-                    style={{
-                      minWidth: 46, height: 38, borderRadius: 8,
-                      background: BUCKET_COLORS[dc],
-                      border: isToday ? '2px solid #ff6b35' : '1px solid rgba(0,0,0,0.08)',
-                      boxShadow: isBest ? '0 0 0 2px rgba(255,107,53,0.55)' : 'none',
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}
-                  >
-                    <Text style={{ fontSize: 10, color: bucketTextColor(dc) }}>{dayCounts(d).yes}</Text>
-                  </View>
-
-                  {/* 槽位格 */}
-                  {slots.map((s) => {
-                    const sc = cells[d]?.slots?.[s]?.bucket || 'white'
-                    const yes = cells[d]?.slots?.[s]?.yes ?? 0
-                    return (
-                      <View
-                        key={s}
-                        onClick={() => onCellClick && onCellClick(d, s)}
+              {days.map((d) => {
+                const isToday = d === today
+                const dc = dayBucket(d)
+                const isBest = best?.date === d
+                return (
+                  <Fragment key={d}>
+                    {/* 日期标签（吸顶） */}
+                    <View
+                      style={{
+                        position: 'sticky', left: 0, zIndex: 2, background: '#fff',
+                        display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                      }}
+                    >
+                      <Text
                         style={{
-                          minWidth: 46, height: 38, borderRadius: 8,
-                          background: BUCKET_COLORS[sc],
-                          border: '1px solid rgba(0,0,0,0.08)',
-                          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 10, fontWeight: isToday ? 700 : 600,
+                          color: isToday ? '#ff6b35' : '#374151', lineHeight: 1.2,
                         }}
                       >
-                        <Text style={{ fontSize: 10, color: bucketTextColor(sc) }}>{yes}</Text>
-                      </View>
-                    )
-                  })}
-                </View>
-              )
-            })}
+                        {shortDate(d)}
+                        {isBest ? '★' : ''}
+                      </Text>
+                      <Text style={{ fontSize: 9, color: '#9ca3af', lineHeight: 1.2 }}>{weekdayLabel(d)}</Text>
+                    </View>
+
+                    {/* 全天格 */}
+                    <View
+                      onClick={() => onCellClick && onCellClick(d, null)}
+                      style={{
+                        height: 34, borderRadius: 7,
+                        background: BUCKET_COLORS[dc],
+                        border: isToday ? '2px solid #ff6b35' : isBest ? '2px solid #ff6b35' : '1px solid rgba(0,0,0,0.08)',
+                        boxShadow: isBest && !isToday ? '0 0 0 2px rgba(255,107,53,0.55)' : 'none',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ fontSize: 10, color: bucketTextColor(dc) }}>{dayCounts(d).yes}</Text>
+                    </View>
+
+                    {/* 时段格 */}
+                    {slots.map((s) => {
+                      const sc = cells[d]?.slots?.[s]?.bucket || 'white'
+                      const yes = cells[d]?.slots?.[s]?.yes ?? 0
+                      return (
+                        <View
+                          key={`${d}-${s}`}
+                          onClick={() => onCellClick && onCellClick(d, s)}
+                          style={{
+                            height: 34, borderRadius: 7,
+                            background: BUCKET_COLORS[sc],
+                            border: '1px solid rgba(0,0,0,0.08)',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}
+                        >
+                          <Text style={{ fontSize: 10, color: bucketTextColor(sc) }}>{yes}</Text>
+                        </View>
+                      )
+                    })}
+                  </Fragment>
+                )
+              })}
+            </View>
           </View>
-        </ScrollView>
+        </View>
       ) : (
         /* ── 按天：周日历热度图 ── */
         <View style={{ border: '1px solid rgba(0,0,0,0.06)', borderRadius: 10, background: '#fff', padding: 8 }}>

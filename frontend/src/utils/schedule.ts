@@ -91,6 +91,23 @@ export function formatDateLabel(s: string): string {
   return `${mm}-${dd} ${WEEK[d.getUTCDay()]}`
 }
 
+// ── 窄屏横向矩阵用的紧凑标签（省宽度） ─────────────────────────────────────────
+/** '09-15'（去掉年份，窄屏左侧行标签用） */
+export function shortDate(s: string): string {
+  return s.slice(5)
+}
+
+/** '周二'（窄屏左侧行标签第二行用） */
+export function weekdayLabel(s: string): string {
+  return WEEK[parseDate(s).getUTCDay()]
+}
+
+/** 把 '09:00-11:00' 拆成 ['09:00', '11:00']，供窄列表头两行显示 */
+export function splitSlot(s: string): [string, string] {
+  const i = s.indexOf('-')
+  return i < 0 ? [s, ''] : [s.slice(0, i), s.slice(i + 1)]
+}
+
 // ── 周日历（月视图）用的辅助 ───────────────────────────────────────────────────
 /** 周日历表头（周一到周日） */
 export const WEEK_HEADER = ['一', '二', '三', '四', '五', '六', '日']

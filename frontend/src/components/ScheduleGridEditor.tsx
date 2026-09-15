@@ -1,10 +1,24 @@
-import { useEffect, useRef } from 'react'
-import { View, Text, ScrollView } from '@tarojs/components'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import { View, Text } from '@tarojs/components'
 import {
   Level, SLOTS, LEVEL_META, levelFill, dayLevel, slotLevel,
-  setDayLevel, setSlotLevel, cycleLevel, formatDateLabel, todayStr, EMPTY_FILL,
+  setDayLevel, setSlotLevel, cycleLevel, EMPTY_FILL, todayStr,
+  shortDate, weekdayLabel, splitSlot,
 } from '../utils/schedule'
+import { ScheduleGesture, TOUCH_MOUSE_GUARD_MS } from '../utils/scheduleGesture'
 import ScheduleMonthGrid from './ScheduleMonthGrid'
+
+/* ── 窄屏横向矩阵的尺寸常量 ──────────────────────────────────────────────────
+ * 用 CSS Grid + `minmax(34px, 1fr)`：能塞下就自动均分铺满（多数手机无需横向滚动），
+ * 塞不下时才溢出 → 外层 overflow-x 可拖动查看。这样「显示不全」和「不能左右拖动」
+ * 两个问题一并解决，且不必用 Taro 的 ScrollView（H5 上它的滚动容器行为不稳定）。 */
+const LABEL_W = 46
+const CELL_MIN = 34
+const GAP = 4
+const COLS = SLOTS.length + 1 // 全天 + 6 个时段
+const TEMPLATE = `${LABEL_W}px repeat(${COLS}, minmax(${CELL_MIN}px, 1fr))`
+/** 内容最少需要的宽度（含 8px 内边距），再窄就横向滚动 */
+const MIN_W = LABEL_W + COLS * CELL_MIN + COLS * GAP + 16
 
 interface Props {
   availability: any
@@ -12,7 +26,6 @@ interface Props {
   granular: boolean
   /** 当前画笔等级（受控，由父级 AvailabilityBrush 共享） */
   brush: Level
-  onBrushChange?: (lv: Level) => void
   /** 只读模式（合并热度图复用网格样式时）不显示画笔、禁用编辑，点击触发 onCellClick */
   readOnly?: boolean
   /** 编辑态：作答变化回调 */
@@ -34,6 +47,22 @@ function cellAtPoint(x: number, y: number): string | null {
   return null
 }
 
+/** 从 Taro 的鼠标/触摸事件里取屏幕坐标（H5 给 clientX，小程序给 detail.x/y） */
+function ptOf(e: any): { x: number; y: number } {
+  const tp = e?.touches?.[0] || e?.changedTouches?.[0]
+  return {
+    x: e?.clientX ?? e?.detail?.x ?? tp?.clientX ?? 0,
+    y: e?.clientY ?? e?.detail?.y ?? tp?.clientY ?? 0,
+  }
+}
+
+/** 是否触摸设备（决定「手指拖动」是涂抹还是滚动，以及是否显示该切换） */
+function detectTouch(): boolean {
+  if (process.env.TARO_ENV !== 'h5') return true
+  if (typeof window === 'undefined') return false
+  return 'ontouchstart' in window || (navigator && navigator.maxTouchPoints > 0)
+}
+
 export default function ScheduleGridEditor({
   availability,
   days,
@@ -43,26 +72,27 @@ export default function ScheduleGridEditor({
   onChange,
   onCellClick,
 }: Props) {
-  const painting = useRef(false)
-  const painted = useRef(false)
-  const startRef = useRef<{ date: string; slot: string | null }>({ date: '', slot: null })
-  const lastKey = useRef<string>('')
-
   const today = todayStr()
+  const [isTouch] = useState(detectTouch)
+  /** 手指拖动 = 涂抹（true，默认）/ 查看（false，交给浏览器滚动） */
+  const [paintOnDrag, setPaintOnDrag] = useState(true)
 
-  // ── 写入：套用画笔 / 单击循环 ────────────────────────────────────────────────
+  /* ── 手势 ───────────────────────────────────────────────────────────────────
+   * 状态机在 utils/scheduleGesture（纯逻辑、可单测），这里只负责挂 DOM 监听：
+   *  · touchMode：触摸后 700ms 内屏蔽浏览器合成的鼠标事件（否则一次轻点走两格）
+   *  · click 捕获拦截：吞掉拖动结束后补发的那一次 click（否则可能误点画笔/多循环一次）
+   * 目标：一次轻点 = 恰好一次循环；一次拖动 = 涂抹且不触发循环。 */
+  const gRef = useRef<ScheduleGesture | null>(null)
+  if (!gRef.current) gRef.current = new ScheduleGesture()
+  /** 触摸手势进行中：屏蔽合成鼠标事件 */
+  const touchMode = useRef(false)
+
+  // ── 写入：单击循环 ──────────────────────────────────────────────────────────
   // ⚠️ 这里曾经有个致命 bug：setDayLevel 的签名是 (av, date, level)，
   //    却按 setSlotLevel 的 (av, date, slot, level) 传了 4 个参数，
   //    导致 level 实际拿到的是 slot=null → 「全天」列永远只会写成「未作答」，
   //    表现就是「全天那一列点不动 / 涂抹没反应」。按天模式下唯一可点的就是全天列，
   //    所以会表现为整页都点不动。
-  const applyBrush = (date: string, slot: string | null) => {
-    if (!onChange) return
-    const next = slot
-      ? setSlotLevel(availability, date, slot, brush)
-      : setDayLevel(availability, date, brush)
-    onChange(next)
-  }
   const cycle = (date: string, slot: string | null) => {
     if (!onChange) return
     const cur = slot ? slotLevel(availability, date, slot) : dayLevel(availability, date)
@@ -72,74 +102,150 @@ export default function ScheduleGridEditor({
       : setDayLevel(availability, date, next)
     onChange(nv)
   }
-  // 整行/整列快捷：用当前画笔填充
-  const fillDay = (date: string) => applyBrush(date, null)
-  const fillSlot = (slot: string) => {
+
+  // ── 整行 / 整列快捷填充（都用当前画笔） ──────────────────────────────────────
+  /** 点日期标签：当天「全天」+ 6 个时段一起填成画笔色 */
+  const fillWholeDay = (date: string) => {
+    if (!onChange) return
+    let nv = setDayLevel(availability, date, brush)
+    for (const s of SLOTS) nv = setSlotLevel(nv, date, s, brush)
+    onChange(nv)
+  }
+  /** 点时段表头：该时段所有日期填成画笔色 */
+  const fillSlotColumn = (slot: string) => {
     if (!onChange) return
     let nv = availability || {}
     for (const d of days) nv = setSlotLevel(nv, d, slot, brush)
     onChange(nv)
   }
+  /** 点「全天」表头：所有日期的「全天」填成画笔色 */
+  const fillDayColumn = () => {
+    if (!onChange) return
+    let nv = availability || {}
+    for (const d of days) nv = setDayLevel(nv, d, brush)
+    onChange(nv)
+  }
 
-  // ── 拖拽涂抹（H5：mousedown/move + elementFromPoint；移动端 touch 同理） ──
-  const begin = (date: string, slot: string | null) => {
-    painting.current = true
-    painted.current = false
-    lastKey.current = ''
+  // ── 手势 ────────────────────────────────────────────────────────────────────
+  /** 起点格：首次涂抹时会补上；小程序端（无 document）也用它做兜底目标 */
+  const startRef = useRef<{ date: string; slot: string | null }>({ date: '', slot: null })
+  const startAt = (date: string, slot: string | null, e: any) => {
+    const p = ptOf(e)
     startRef.current = { date, slot }
+    gRef.current!.begin(p.x, p.y, cellKey(date, slot))
   }
-  const paintAt = (x: number, y: number) => {
-    if (!painting.current || !onChange) return
-    const key = cellAtPoint(x, y)
-    if (!key || key === lastKey.current) return
-    lastKey.current = key
-    const [date, slotRaw] = key.split('__')
-    const slot = slotRaw === 'day' ? null : slotRaw
-    applyBrush(date, slot)
-    painted.current = true
-  }
-  const end = () => {
-    // 没有发生涂抹 = 一次单击 → 循环该格（单格微调）
-    if (painting.current && !painted.current && onChange) {
-      cycle(startRef.current.date, startRef.current.slot)
+  /** 坐标 → 格子 key；H5 用 elementFromPoint，解析不到（滑出网格）就返回 null 不涂抹 */
+  const resolveCell = (x: number, y: number): string | null => {
+    const hit = cellAtPoint(x, y)
+    if (hit) return hit
+    if (typeof document === 'undefined') {
+      const s = startRef.current
+      return cellKey(s.date, s.slot)
     }
-    painting.current = false
+    return null
   }
-  const endRef = useRef(end)
-  endRef.current = end
+  /**
+   * 一次性涂抹多个格子。
+   * ⚠️ 必须在这里把结果累积到同一个对象上再回调：availability 来自 props，
+   *    同一个事件里连续调用 onChange 会都基于同一份旧值，后面的会覆盖前面的。
+   */
+  const paintCells = (keys: string[]) => {
+    if (!onChange || !keys.length) return
+    let acc = availability
+    for (const k of keys) {
+      const [date, slotRaw] = k.split('__')
+      acc = slotRaw === 'day' ? setDayLevel(acc, date, brush) : setSlotLevel(acc, date, slotRaw, brush)
+    }
+    onChange(acc)
+  }
+  const moveTo = (touch: boolean, e: any) => {
+    if (readOnly) return
+    const p = ptOf(e)
+    // 涂抹模式才在拖动时写入；查看模式把拖动让给浏览器（滚矩阵 / 滚页面）
+    const res = gRef.current!.move(p.x, p.y, touch ? paintOnDrag : true, resolveCell)
+    if (res.paints.length) paintCells(res.paints)
+  }
+  const finish = () => gRef.current!.end(Date.now())
 
-  // 鼠标/手指在网格外抬起也要结束涂抹（否则会「粘住」持续涂抹）
   useEffect(() => {
     if (readOnly || typeof document === 'undefined') return
-    const up = () => endRef.current()
+    const up = () => finish()
     document.addEventListener('mouseup', up)
     document.addEventListener('touchend', up)
     document.addEventListener('touchcancel', up)
+
+    // 触摸手势期间 + 之后一段时间，屏蔽合成鼠标事件，避免「一次轻点走两格」
+    let timer: any = null
+    const tsOn = () => {
+      touchMode.current = true
+      if (timer) clearTimeout(timer)
+    }
+    const tsOff = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        touchMode.current = false
+      }, TOUCH_MOUSE_GUARD_MS)
+    }
+    document.addEventListener('touchstart', tsOn, true)
+    document.addEventListener('touchend', tsOff, true)
+    document.addEventListener('touchcancel', tsOff, true)
+
     return () => {
       document.removeEventListener('mouseup', up)
       document.removeEventListener('touchend', up)
       document.removeEventListener('touchcancel', up)
+      document.removeEventListener('touchstart', tsOn, true)
+      document.removeEventListener('touchend', tsOff, true)
+      document.removeEventListener('touchcancel', tsOff, true)
+      if (timer) clearTimeout(timer)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readOnly])
 
+  // 拖动刚结束 → 吞掉紧随其后的那一次 click（window 捕获阶段最先执行，只吞一次）
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const kill = (e: any) => {
+      if (gRef.current!.consumeSuppressedClick(Date.now())) {
+        e.preventDefault?.()
+        e.stopPropagation?.()
+        e.stopImmediatePropagation?.()
+      }
+    }
+    window.addEventListener('click', kill, true)
+    return () => window.removeEventListener('click', kill, true)
+  }, [])
+
   const handleCellDown = (date: string, slot: string | null) => (e: any) => {
-    if (readOnly) return
-    e?.stopPropagation?.()
-    begin(date, slot)
+    if (readOnly || touchMode.current) return
+    startAt(date, slot, e)
   }
-  const handleCellTouch = (date: string, slot: string | null) => (e: any) => {
+  const handleCellTouchStart = (date: string, slot: string | null) => (e: any) => {
     if (readOnly) return
-    e?.stopPropagation?.()
-    const tt = e?.touches?.[0]
-    begin(date, slot)
-    if (tt) paintAt(tt.clientX, tt.clientY)
+    startAt(date, slot, e)
+  }
+  const handleCellClick = (date: string, slot: string | null) => () => {
+    if (readOnly) {
+      if (onCellClick) onCellClick(date, slot)
+      return
+    }
+    cycle(date, slot)
   }
 
-  const cellStyle = (level: Level, isToday: boolean, minWidth: number) => ({
-    position: 'relative' as const,
-    minWidth,
-    height: 38,
-    borderRadius: 8,
+  const onMouseMoveEv = (e: any) => moveTo(false, e)
+  const onTouchMoveEv = (e: any) => moveTo(true, e)
+
+  const hint = readOnly
+    ? ''
+    : granular
+    ? paintOnDrag
+      ? '选好画笔后按住拖动即可批量涂抹；轻点单格循环 未答 → 有空 → 可能有空 → 可能没空 → 没空。点日期标签整天填充，点时段表头整列填充。'
+      : '轻点单格循环切换等级；左右拖动可查看全部时段。点日期标签整天填充，点时段表头整列填充。'
+    : '选好画笔后按住拖动即可批量涂抹；轻点某天循环切换等级。'
+
+  const cellStyle = (level: Level, isToday: boolean) => ({
+    height: 34,
+    borderRadius: 7,
     background: levelFill(level),
     border: isToday ? '2px solid #ff6b35' : '1px solid rgba(0,0,0,0.08)',
     display: 'flex',
@@ -150,113 +256,146 @@ export default function ScheduleGridEditor({
     transition: 'background .12s ease',
   })
 
-  const hint = granular
-    ? '按住拖动可批量涂抹；单击格子循环 未答 → 有空 → 可能有空 → 可能没空 → 没空。点「全天」列表头/日期标签可整列或整日填充，点时段表头可整列填充（「全天」与 6 个时段是两套独立作答，填其中一套即可）。'
-    : '按住拖动可批量涂抹；单击某天循环 未答 → 有空 → 可能有空 → 可能没空 → 没空。'
-
-  const onMove = (e: any) => {
-    if (readOnly) return
-    paintAt(e.clientX, e.clientY)
-  }
-  const onTouchMove = (e: any) => {
-    if (readOnly) return
-    const tt = e?.touches?.[0]
-    if (tt) paintAt(tt.clientX, tt.clientY)
-  }
+  const headStyle = (clickable: boolean, accent: boolean) => ({
+    fontSize: accent ? 10 : 9,
+    lineHeight: 1.25,
+    textAlign: 'center' as const,
+    color: clickable && accent ? '#ff6b35' : '#9ca3af',
+    fontWeight: clickable && accent ? 600 : 400,
+    cursor: clickable ? 'pointer' : 'default',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    WebkitTapHighlightColor: 'transparent',
+  })
 
   return (
     <View>
-      {/* 使用提示（仅编辑态） */}
       {!readOnly && (
-        <Text style={{ display: 'block', fontSize: 12, color: '#9ca3af', marginBottom: 8 }}>{hint}</Text>
+        <View style={{ marginBottom: 8 }}>
+          <Text style={{ display: 'block', fontSize: 12, color: '#9ca3af' }}>{hint}</Text>
+          {granular && isTouch && (
+            <View style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+              <Text style={{ fontSize: 11, color: '#9ca3af' }}>手指拖动</Text>
+              {[
+                { on: paintOnDrag, label: '涂抹', v: true },
+                { on: !paintOnDrag, label: '查看', v: false },
+              ].map((o) => (
+                <View
+                  key={o.label}
+                  onClick={() => setPaintOnDrag(o.v)}
+                  style={{
+                    padding: '3px 10px',
+                    borderRadius: 999,
+                    fontSize: 11,
+                    background: o.on ? 'rgba(255,107,53,0.12)' : '#fff',
+                    color: o.on ? '#ff6b35' : '#6b7280',
+                    border: o.on ? '1.5px solid #ff6b35' : '1px solid rgba(0,0,0,0.08)',
+                    fontWeight: o.on ? 600 : 400,
+                  }}
+                >
+                  {o.label}
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
       )}
 
-      {/* 拖拽涂抹的容器：事件冒泡到这里统一处理 */}
-      <View onMouseMove={onMove} onTouchMove={onTouchMove} style={{ userSelect: 'none' }}>
+      {/* 涂抹容器：事件冒泡到这里统一处理 */}
+      <View onMouseMove={onMouseMoveEv} onTouchMove={onTouchMoveEv} style={{ userSelect: 'none' }}>
         {granular ? (
-          /* ── 精确到小时：横向矩阵（日期 × 6 个时段） ── */
-          <ScrollView
-            scrollX
+          /* ── 精确到小时：日期 × 6 时段矩阵。能铺满就铺满，铺不下可横向拖动 ── */
+          <View
             style={{
+              display: 'block',
               width: '100%',
+              boxSizing: 'border-box',
               border: '1px solid rgba(0,0,0,0.06)',
               borderRadius: 10,
               background: '#fff',
-              overflow: 'hidden',
+              overflowX: 'auto',
+              WebkitOverflowScrolling: 'touch',
             }}
           >
-            <View style={{ display: 'inline-block', minWidth: '100%', padding: 8 }}>
-              {/* 表头 */}
-              <View style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                <View style={{ width: 72, flexShrink: 0 }} />
-                <View style={{ width: 46, flexShrink: 0, textAlign: 'center', fontSize: 11, color: '#9ca3af' }}>
+            <View style={{ display: 'block', padding: 8, minWidth: MIN_W, boxSizing: 'border-box' }}>
+              <View style={{ display: 'grid', gridTemplateColumns: TEMPLATE, gap: GAP }}>
+                {/* 表头 */}
+                <View />
+                <View onClick={() => !readOnly && fillDayColumn()} style={headStyle(!readOnly, false)}>
                   全天
                 </View>
-                {SLOTS.map((s) => (
-                  <View
-                    key={s}
-                    onClick={() => !readOnly && fillSlot(s)}
-                    style={{
-                      minWidth: 46,
-                      textAlign: 'center',
-                      fontSize: 10,
-                      color: readOnly ? '#9ca3af' : '#ff6b35',
-                      fontWeight: readOnly ? 400 : 600,
-                      cursor: readOnly ? 'default' : 'pointer',
-                      padding: '2px 0',
-                    }}
-                  >
-                    {s}
-                  </View>
-                ))}
-              </View>
-
-              {/* 每一天一行 */}
-              {days.map((d) => {
-                const isToday = d === today
-                const dl = dayLevel(availability, d)
-                return (
-                  <View key={d} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'stretch' }}>
-                    <View
-                      onClick={() => !readOnly && fillDay(d)}
-                      style={{
-                        width: 72, flexShrink: 0, display: 'flex', alignItems: 'center',
-                        fontSize: 12, color: isToday ? '#ff6b35' : '#2b2b2b',
-                        fontWeight: isToday ? 700 : 500,
-                        cursor: readOnly ? 'default' : 'pointer', paddingRight: 4,
-                      }}
-                    >
-                      {formatDateLabel(d)}
+                {SLOTS.map((s) => {
+                  const [st, en] = splitSlot(s)
+                  return (
+                    <View key={s} onClick={() => !readOnly && fillSlotColumn(s)} style={headStyle(!readOnly, true)}>
+                      <Text style={{ fontSize: 9, lineHeight: 1.25 }}>{st}</Text>
+                      <Text style={{ fontSize: 9, lineHeight: 1.25 }}>{en}</Text>
                     </View>
+                  )
+                })}
 
-                    {/* 全天（day）格 */}
-                    <View
-                      data-cell={cellKey(d, null)}
-                      style={cellStyle(dl, isToday, 46)}
-                      onClick={() => readOnly && onCellClick && onCellClick(d, null)}
-                      onMouseDown={handleCellDown(d, null)}
-                      onTouchStart={handleCellTouch(d, null)}
-                    />
+                {/* 每一天一行 */}
+                {days.map((d) => {
+                  const isToday = d === today
+                  const dl = dayLevel(availability, d)
+                  return (
+                    <Fragment key={d}>
+                      {/* 日期标签（吸顶在左侧，横向滚动时始终可见） */}
+                      <View
+                        onClick={() => !readOnly && fillWholeDay(d)}
+                        style={{
+                          position: 'sticky',
+                          left: 0,
+                          zIndex: 2,
+                          background: '#fff',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'center',
+                          cursor: readOnly ? 'default' : 'pointer',
+                          WebkitTapHighlightColor: 'transparent',
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 10,
+                            fontWeight: isToday ? 700 : 600,
+                            color: isToday ? '#ff6b35' : '#374151',
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {shortDate(d)}
+                        </Text>
+                        <Text style={{ fontSize: 9, color: '#9ca3af', lineHeight: 1.2 }}>{weekdayLabel(d)}</Text>
+                      </View>
 
-                    {/* 精确到小时的 6 个槽位 */}
-                    {SLOTS.map((s) => {
-                      const sl = slotLevel(availability, d, s)
-                      return (
+                      {/* 全天格 */}
+                      <View
+                        data-cell={cellKey(d, null)}
+                        style={cellStyle(dl, isToday)}
+                        onMouseDown={handleCellDown(d, null)}
+                        onTouchStart={handleCellTouchStart(d, null)}
+                        onClick={handleCellClick(d, null)}
+                      />
+
+                      {/* 6 个时段格 */}
+                      {SLOTS.map((s) => (
                         <View
-                          key={s}
+                          key={`${d}-${s}`}
                           data-cell={cellKey(d, s)}
-                          style={cellStyle(sl, isToday, 46)}
-                          onClick={() => readOnly && onCellClick && onCellClick(d, s)}
+                          style={cellStyle(slotLevel(availability, d, s), isToday)}
                           onMouseDown={handleCellDown(d, s)}
-                          onTouchStart={handleCellTouch(d, s)}
+                          onTouchStart={handleCellTouchStart(d, s)}
+                          onClick={handleCellClick(d, s)}
                         />
-                      )
-                    })}
-                  </View>
-                )
-              })}
+                      ))}
+                    </Fragment>
+                  )
+                })}
+              </View>
             </View>
-          </ScrollView>
+          </View>
         ) : (
           /* ── 按天：周日历网格（周一~周日 7 列，按自然月分组） ── */
           <View
@@ -280,13 +419,26 @@ export default function ScheduleGridEditor({
                 const lv = dayLevel(availability, d)
                 return lv ? LEVEL_META[lv].text : '#374151'
               }}
-              onDown={(d) => begin(d, null)}
-              onTouchStart={(d) => begin(d, null)}
-              onClick={(d) => readOnly && onCellClick && onCellClick(d, null)}
+              onDown={(d, e) => {
+                if (readOnly || touchMode.current) return
+                startAt(d, null, e)
+              }}
+              onTouchStart={(d, e) => {
+                if (readOnly) return
+                startAt(d, null, e)
+              }}
+              onClick={(d) => handleCellClick(d, null)()}
             />
           </View>
         )}
       </View>
+
+      {/* 窄屏提示：横向可拖动 */}
+      {granular && (
+        <Text style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#c4c4c4' }}>
+          表格可左右拖动查看看不到的时段
+        </Text>
+      )}
     </View>
   )
 }

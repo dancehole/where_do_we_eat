@@ -13,8 +13,8 @@ interface Props {
   badgeOf?: (date: string) => string | null
   /** 可交互（编辑态）；只读态仅触发 onClick */
   editable?: boolean
-  onDown?: (date: string) => void
-  onTouchStart?: (date: string) => void
+  onDown?: (date: string, e?: any) => void
+  onTouchStart?: (date: string, e?: any) => void
   onClick?: (date: string) => void
   /** 是否输出 data-cell 属性（供拖拽涂抹用 elementFromPoint 命中） */
   attrDataCell?: boolean
@@ -97,8 +97,8 @@ export default function ScheduleMonthGrid({
                 <View key={d} style={CELL_WRAP}>
                   <View
                     {...(attrDataCell ? { 'data-cell': `${d}__day` } : {})}
-                    onMouseDown={editable && onDown ? () => onDown(d) : undefined}
-                    onTouchStart={editable && onTouchStart ? () => onTouchStart(d) : undefined}
+                    onMouseDown={editable && onDown ? (e: any) => onDown(d, e) : undefined}
+                    onTouchStart={editable && onTouchStart ? (e: any) => onTouchStart(d, e) : undefined}
                     onClick={onClick ? () => onClick(d) : undefined}
                     style={{
                       position: 'relative',

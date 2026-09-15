@@ -222,8 +222,6 @@ export default function ScheduleDetail() {
         </View>
       }
     >
-      <ReminderBanner />
-
       {/* 信息 */}
       <Section title='排期信息' icon='calendar' tone='orange'>
         {m.description ? (
@@ -358,6 +356,11 @@ export default function ScheduleDetail() {
           </Text>
         </Section>
       )}
+
+      {/* 提醒横幅放在编辑器「下方」：它的内容会随作答变化而出现/消失，
+          若放在顶部会让整个网格上下位移 —— 表现为「点这格却改到了上一格」。
+          ⚠️ 不要再把它移回网格上方。 */}
+      <ReminderBanner />
 
       {/* 锁定后：只读合并图 */}
       {myPid && locked && (
