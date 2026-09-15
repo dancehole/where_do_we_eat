@@ -2,7 +2,7 @@ import { View, Text, Button } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useState } from 'react'
 import { api } from '../services/api'
-import { useResponsive } from '../hooks/useResponsive'
+import { useResponsive } from '../hooks/useResponsive' // 注：本组件样式为写死配色，未使用 tokens 主题变量
 
 /** 碰面规则选项：同城 / 异地 两大类，各自含若干子规则（仅记录选择，算法后续补充）。 */
 export const RULE_OPTIONS: Record<'same_city' | 'travel', { key: string; label: string }[]> = {
@@ -37,7 +37,6 @@ interface Props {
  */
 export default function MeetupRulePicker({ code, value, onChange }: Props) {
   const { mode } = useResponsive()
-  const t = tokens(mode)
   const [modeSel, setModeSel] = useState<'same_city' | 'travel'>(
     value?.startsWith('travel') ? 'travel' : 'same_city'
   )
