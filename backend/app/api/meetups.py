@@ -14,6 +14,7 @@ from ..models import User, Meetup, Participant, Restaurant, Preference
 from ..schemas import (
     MeetupCreate, LocationIn, MeetupOut, ParticipantOut,
     RestaurantFilter, PreferenceIn, RestaurantOut, ParticipantUpdate,
+    MeetupRuleIn,
 )
 from ..services import geo, amap, rank
 from . import preferences as prefs_api
@@ -74,6 +75,7 @@ def _serialize(m: Meetup, db: Session, request: Optional[Request]):
     share_url = f"{frontend_base}/#/pages/meetup-detail/index?code={m.code}" if frontend_base else None
     return MeetupOut(
         id=m.id, code=m.code, status=m.status, meetup_type=m.meetup_type,
+        rule=m.rule,
         center_lat=float(m.center_lat) if m.center_lat is not None else None,
         center_lng=float(m.center_lng) if m.center_lng is not None else None,
         created_at=m.created_at, participant_count=len(parts),
@@ -222,6 +224,17 @@ def compute_center(code: str, db: Session = Depends(get_db)):
         "center_lng": float(m.center_lng),
         "meetup_type": m.meetup_type,
     }
+
+
+@router.patch("/{code}/rule")
+def set_rule(code: str, body: MeetupRuleIn, db: Session = Depends(get_db)):
+    """保存用户手动选择的碰面规则（算法后续补充，此处仅持久化选择）。"""
+    m = db.query(Meetup).filter(Meetup.code == code).first()
+    if not m:
+        raise HTTPException(404, "碰面不存在")
+    m.rule = body.rule
+    db.commit()
+    return _serialize(m, db, None)
 
 
 @router.get("/{code}/restaurants", response_model=list)

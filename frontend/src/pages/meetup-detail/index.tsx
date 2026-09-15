@@ -9,6 +9,7 @@ import Icon from '../../components/Icon'
 import MapView from '../../components/MapView'
 import JoinMeetup, { joinKey } from '../../components/JoinMeetup'
 import ManualAddParticipant from '../../components/ManualAddParticipant'
+import MeetupRulePicker from '../../components/MeetupRulePicker'
 import { useResponsive, tokens } from '../../hooks/useResponsive'
 import { isWeapp } from '../../utils/user'
 
@@ -74,6 +75,42 @@ export default function MeetupDetail() {
         <Text style={{ color: '#9ca3af' }}>加载中...</Text>
       </PageContainer>
     )
+
+  // 地图图例：蓝=自己 / 绿=朋友 / 红=碰面中心
+  const Legend = () => (
+    <View style={{ display: 'flex', gap: 14, marginTop: 10, flexWrap: 'wrap' }}>
+      {[
+        { c: '#3b82f6', t: '我（自己）' },
+        { c: '#10b981', t: '朋友' },
+        { c: '#ef4444', t: '碰面中心' },
+      ].map((x, i) => (
+        <View key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <View
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: 999,
+              background: x.c,
+              border: '2px solid #fff',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+            }}
+          />
+          <Text style={{ fontSize: 12, color: '#4b5563' }}>{x.t}</Text>
+        </View>
+      ))}
+    </View>
+  )
+
+  // 选择碰面规则 Section（持久化到后端，算法后续补充）
+  const RuleSection = () => (
+    <Section title='选择碰面规则' icon='rule' tone='blue'>
+      <MeetupRulePicker
+        code={code}
+        value={m?.rule}
+        onChange={(r) => setM({ ...m, rule: r })}
+      />
+    </Section>
+  )
 
   return (
     <PageContainer
@@ -272,6 +309,7 @@ export default function MeetupDetail() {
 
           {/* 右：地图 + 中心 */}
           <View>
+            <RuleSection />
             <Section title='碰面位置' icon='target' tone='orange'>
               <Button
                 onClick={calcCenter}
@@ -307,18 +345,21 @@ export default function MeetupDetail() {
                     </Text>
                   </View>
                   <View style={{ marginTop: 10 }}>
+                    <Legend />
                     <MapView
                       center={{ lat: center.center_lat, lng: center.center_lng }}
                       markers={[
                         ...m.participants.map((p: any) => ({
                           lat: p.lat,
                           lng: p.lng,
-                          title: p.nickname,
+                          title: p.nickname + (p.id === myPid ? '（你）' : ''),
+                          type: p.id === myPid ? 'self' : 'friend',
                         })),
                         {
                           lat: center.center_lat,
                           lng: center.center_lng,
                           title: '碰面中心',
+                          type: 'center',
                         },
                       ]}
                     />
@@ -412,6 +453,8 @@ export default function MeetupDetail() {
             </View>
           </Section>
 
+          <RuleSection />
+
           <Section title='碰面位置' icon='target' tone='orange'>
             <Button
               onClick={calcCenter}
@@ -448,15 +491,22 @@ export default function MeetupDetail() {
             )}
             {center && (
               <View style={{ marginTop: 10 }}>
+                <Legend />
                 <MapView
                   center={{ lat: center.center_lat, lng: center.center_lng }}
                   markers={[
                     ...m.participants.map((p: any) => ({
                       lat: p.lat,
                       lng: p.lng,
-                      title: p.nickname,
+                      title: p.nickname + (p.id === myPid ? '（你）' : ''),
+                      type: p.id === myPid ? 'self' : 'friend',
                     })),
-                    { lat: center.center_lat, lng: center.center_lng, title: '碰面中心' },
+                    {
+                      lat: center.center_lat,
+                      lng: center.center_lng,
+                      title: '碰面中心',
+                      type: 'center',
+                    },
                   ]}
                 />
                 {center.meetup_type === 'same_city' && (

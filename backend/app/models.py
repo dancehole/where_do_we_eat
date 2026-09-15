@@ -31,6 +31,9 @@ class Meetup(Base):
     creator_id = Column(String(36), ForeignKey("users.id"))
     status = Column(SAEnum("active", "ended"), default="active")
     meetup_type = Column(SAEnum("same_city", "travel"), nullable=True)
+    # 用户手动选择的「碰面规则」（如 same_city:nearest / travel:time）。
+    # 与自动判定的 meetup_type 分离：当前仅持久化用户选择，具体算法后续补充。
+    rule = Column(String(64), nullable=True)
     center_lat = Column(DECIMAL(10, 7), nullable=True)
     center_lng = Column(DECIMAL(10, 7), nullable=True)
     created_at = Column(DateTime, default=_now)

@@ -49,6 +49,9 @@ const ICONS: Record<string, string> = {
     '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/>',
   // 返回（左箭头）
   back: '<path d="M19 12H5"/><path d="M11 5l-7 7 7 7"/>',
+  // 规则 / 选项（滑块调节）
+  rule:
+    '<path d="M4 7h10"/><circle cx="17" cy="7" r="2.4"/><path d="M4 17h6"/><circle cx="13" cy="17" r="2.4"/>',
   // 首页
   home:
     '<path d="M4 11l8-7 8 7"/><path d="M6 9.5V20a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V9.5"/><path d="M10 21v-6h4v6"/>',

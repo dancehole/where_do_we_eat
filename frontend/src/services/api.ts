@@ -36,6 +36,8 @@ export const api = {
   addLocation: (code: string, body: any) =>
     request(`/api/meetups/${code}/add-location`, { method: 'POST', data: body }),
   endMeetup: (code: string) => request(`/api/meetups/${code}/end`, { method: 'POST' }),
+  setMeetupRule: (code: string, rule: string) =>
+    request(`/api/meetups/${code}/rule`, { method: 'PATCH', data: { rule } }),
   listMine: (status?: string) =>
     request(`/api/meetups${status ? `?status=${status}` : ''}`),
   history: () => request('/api/meetups/history/list'),

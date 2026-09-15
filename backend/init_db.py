@@ -25,6 +25,9 @@ EXTRA_COLUMNS = {
         "avatar": "VARCHAR(512) NULL",
         "wechat_id": "VARCHAR(128) NULL",
     },
+    "meetups": {
+        "rule": "VARCHAR(64) NULL",
+    },
 }
 
 

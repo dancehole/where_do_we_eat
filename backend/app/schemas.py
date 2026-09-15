@@ -40,6 +40,7 @@ class MeetupOut(BaseModel):
     code: str
     status: str
     meetup_type: Optional[str] = None
+    rule: Optional[str] = None
     center_lat: Optional[float] = None
     center_lng: Optional[float] = None
     created_at: datetime
@@ -48,6 +49,11 @@ class MeetupOut(BaseModel):
     share_url: Optional[str] = None
     # 本次操作产生的参与者 id（创建者本人 / 刚加入的人），供前端持久化识别「我」
     my_participant_id: Optional[str] = None
+
+
+class MeetupRuleIn(BaseModel):
+    """用户手动选择的碰面规则（如 same_city:nearest / travel:time）。"""
+    rule: str
 
 
 class RestaurantFilter(BaseModel):

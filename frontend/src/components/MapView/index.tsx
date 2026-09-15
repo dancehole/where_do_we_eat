@@ -9,6 +9,8 @@ export interface MapMarker {
   lat: number
   lng: number
   title?: string
+  /** 标记类型：self=自己(蓝) / friend=朋友(绿) / center=碰面中心(红) / poi=默认(橙，餐厅等) */
+  type?: 'self' | 'friend' | 'center' | 'poi'
 }
 
 interface Props {
@@ -28,6 +30,56 @@ const IS_H5 = process.env.TARO_ENV === 'h5'
 // 各模式默认地图高度：小屏紧凑、PC 宽屏更高
 function defaultHeight(mode: 'mobile' | 'tablet' | 'desktop') {
   return mode === 'mobile' ? 240 : mode === 'tablet' ? 320 : 460
+}
+
+// 标记颜色：self=自己(蓝) / friend=朋友(绿) / center=碰面中心(红) / poi=餐厅等(橙)
+const MARKER_COLOR: Record<string, string> = {
+  self: '#3b82f6',
+  friend: '#10b981',
+  center: '#ef4444',
+  poi: '#ff6b35',
+}
+
+const escapeHtml = (s: string): string =>
+  String(s || '').replace(/[&<>"']/g, (c) => {
+    switch (c) {
+      case '&': return '&amp;'
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '"': return '&quot;'
+      default: return '&#39;'
+    }
+  })
+
+// 注入一次自定义标记样式：彩色水滴 + 文字标签 + 展开后 1s 落下动画 + 中心持续脉冲
+function ensureMarkerStyle() {
+  if (typeof document === 'undefined') return
+  if (document.getElementById('wte-map-style')) return
+  const s = document.createElement('style')
+  s.id = 'wte-map-style'
+  s.textContent = `
+.wte-marker{display:flex;flex-direction:column;align-items:center;transform-origin:center bottom;
+  animation:wteDrop .55s cubic-bezier(.2,.8,.3,1.25) both;animation-delay:1s;}
+.wte-label{margin-bottom:6px;padding:2px 8px;border-radius:999px;background:var(--c);color:#fff;
+  font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.25);}
+.wte-pin{width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--c);
+  border:2px solid #fff;box-shadow:0 3px 7px rgba(0,0,0,.3);}
+.wte-marker--center .wte-pin{width:26px;height:26px;animation:wtePulse 1.8s ease-out 1.7s infinite;}
+@keyframes wteDrop{from{transform:translateY(-18px) scale(.5);opacity:0}to{transform:translateY(0) scale(1);opacity:1}}
+@keyframes wtePulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,.55)}
+  70%{box-shadow:0 0 0 12px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
+`
+  document.head.appendChild(s)
+}
+
+// 小程序 callout 背景色需 #RRGGBBAA
+function hexToRgba(hex: string, alpha = 0.95): string {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  const a = Math.round(alpha * 255)
+  return `#${[r, g, b, a].map((v) => v.toString(16).padStart(2, '0')).join('')}`
 }
 
 let seq = 0
@@ -55,7 +107,9 @@ export default function MapView({ center, markers = [], height, onMarkerClick }:
 
   // 把对象/数组依赖序列化成字符串，避免每次父组件 render 都触发重建
   const centerKey = center ? `${center.lat},${center.lng}` : ''
-  const markerKey = markers.map((m) => `${m.lat},${m.lng},${m.title || ''}`).join('|')
+  const markerKey = markers
+    .map((m) => `${m.lat},${m.lng},${m.title || ''},${m.type || 'poi'}`)
+    .join('|')
 
   useEffect(() => {
     if (!IS_H5) return
@@ -135,8 +189,26 @@ export default function MapView({ center, markers = [], height, onMarkerClick }:
             }
             const map = mapRef.current
             if (typeof map.clearMap === 'function') map.clearMap()
+            ensureMarkerStyle()
             markers.forEach((m, i) => {
-              const mk = new AMap.Marker({ position: [m.lng, m.lat], title: m.title, map })
+              const type = m.type || 'poi'
+              const color = MARKER_COLOR[type] || MARKER_COLOR.poi
+              const label =
+                m.title ||
+                (type === 'center' ? '碰面中心' : type === 'self' ? '我' : type === 'friend' ? '朋友' : '')
+              const html =
+                `<div class="wte-marker wte-marker--${type}" style="--c:${color}">` +
+                `<div class="wte-label">${escapeHtml(label)}</div>` +
+                `<div class="wte-pin"></div>` +
+                `</div>`
+              const mk = new AMap.Marker({
+                position: [m.lng, m.lat],
+                content: html,
+                anchor: 'bottom-center',
+                title: label,
+                map,
+                zIndex: type === 'center' ? 200 : type === 'self' ? 120 : 100,
+              })
               // 点击标记 → 回调对应餐厅下标（美食地图跳转到卡片）
               if (mk && typeof mk.on === 'function') {
                 mk.on('click', () => {
@@ -229,14 +301,30 @@ export default function MapView({ center, markers = [], height, onMarkerClick }:
   }
 
   // 微信小程序：原生 Map 组件
-  const wxMarkers = markers.map((m, i) => ({
-    id: i,
-    latitude: m.lat,
-    longitude: m.lng,
-    title: m.title || '',
-    width: 24,
-    height: 24,
-  }))
+  const wxMarkers = markers.map((m, i) => {
+    const type = m.type || 'poi'
+    const color = MARKER_COLOR[type] || MARKER_COLOR.poi
+    const label =
+      m.title ||
+      (type === 'center' ? '碰面中心' : type === 'self' ? '我' : type === 'friend' ? '朋友' : '')
+    return {
+      id: i,
+      latitude: m.lat,
+      longitude: m.lng,
+      width: 26,
+      height: 26,
+      callout: {
+        content: label,
+        color: '#ffffff',
+        fontSize: 12,
+        borderRadius: 8,
+        bgColor: hexToRgba(color, 0.95),
+        padding: 6,
+        display: 'ALWAYS' as const,
+        textAlign: 'center' as const,
+      },
+    }
+  })
   return (
     <Map
       longitude={center.lng}
