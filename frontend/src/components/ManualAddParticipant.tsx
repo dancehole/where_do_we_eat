@@ -119,7 +119,7 @@ export default function ManualAddParticipant({ code, ended, onChange }: Props) {
   if (ended) return null
 
   return (
-    <Section title='手动添加参与者' icon='plus' tone='blue'>
+    <Section title='手动添加参与者' icon='plus' tone='blue' collapsible defaultOpen={false}>
       <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginBottom: 8 }}>
         帮朋友报个位置：填昵称 + 地址（或地图选点），TA 不必自己操作也能出现在碰面里。
       </Text>

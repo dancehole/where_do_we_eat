@@ -21,6 +21,10 @@ EXTRA_COLUMNS = {
         "note": "TEXT NULL",
         "updated_at": "DATETIME NULL",
     },
+    "participants": {
+        "avatar": "VARCHAR(512) NULL",
+        "wechat_id": "VARCHAR(128) NULL",
+    },
 }
 
 

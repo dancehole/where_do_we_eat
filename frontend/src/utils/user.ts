@@ -8,7 +8,8 @@ import { getApiBase } from '../config'
  * - 用 Taro 持久化存储（H5 即 localStorage，等价于 cookie 的持久化语义；小程序即 wx storage）。
  * - 每个浏览器/设备生成一个稳定匿名 id，作为跨碰面识别「同一个参与者」的依据。
  * - 昵称默认「匿名用户xx」（xx=两位随机数），用户可改；改后持久化，下次自动带入。
- * - 微信小程序：提供 fetchWechatNickname() 通过 getUserProfile 拉取用户昵称（需用户点击触发）。
+ * - 微信小程序：提供 fetchWechatProfile() 通过 getUserProfile 拉取「昵称 + 头像」（需用户点击触发）；
+ *   weappLogin() 通过 wx.login 换 openid 作为更稳定的微信身份（wechat_id）。
  */
 
 const ANON_ID_KEY = 'eat_anon_id'
@@ -62,6 +63,33 @@ export async function fetchWechatNickname(): Promise<string | null> {
     const res: any = await Taro.getUserProfile({ desc: '用于在碰面中显示你的昵称' })
     const nick = res?.userInfo?.nickName
     if (nick) return nick
+  } catch {
+    // 用户拒绝授权或环境不支持：静默返回 null，UI 回退到手动输入
+  }
+  return null
+}
+
+export interface WechatProfile {
+  /** 微信昵称 */
+  nickname: string
+  /** 微信头像 URL（getUserProfile 返回，可能带有效期；小程序内 <Image> 展示） */
+  avatarUrl: string
+}
+
+/**
+ * 微信小程序：一次性获取「昵称 + 头像」（getUserProfile 同时返回二者）。
+ * - 需由用户点击事件触发（微信强制要求用户手势）。
+ * - 返回 { nickname, avatarUrl }，或 null（用户拒绝 / 非小程序环境）。
+ * 配合 weappLogin() 拿到的 openid，即可在小程序里以「微信身份」命名参与者。
+ */
+export async function fetchWechatProfile(): Promise<WechatProfile | null> {
+  if (!isWeapp()) return null
+  try {
+    const res: any = await Taro.getUserProfile({ desc: '用于在碰面中显示你的昵称和头像' })
+    const u = res?.userInfo
+    if (u?.nickName) {
+      return { nickname: u.nickName, avatarUrl: u.avatarUrl || '' }
+    }
   } catch {
     // 用户拒绝授权或环境不支持：静默返回 null，UI 回退到手动输入
   }

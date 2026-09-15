@@ -1,6 +1,6 @@
-import { View, Text, Button, Input } from '@tarojs/components'
+import { View, Text, Button, Input, Image } from '@tarojs/components'
 import Taro from '@tarojs/taro'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 import Section from './Section'
 import Icon from './Icon'
@@ -10,7 +10,8 @@ import {
   getStoredNickname,
   getDefaultNickname,
   saveNickname,
-  fetchWechatNickname,
+  fetchWechatProfile,
+  weappLogin,
   isWeapp,
 } from '../utils/user'
 import { useResponsive, tokens } from '../hooks/useResponsive'
@@ -34,13 +35,27 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
   const { mode } = useResponsive()
   const t = tokens(mode)
 
-  const [nick, setNick] = useState<string>(() => getStoredNickname() || getDefaultNickname())
+  // 昵称默认值：浏览器用「匿名用户xx」；小程序留空，提示用户用微信昵称/头像（需用户手势授权）
+  const [nick, setNick] = useState<string>(() =>
+    getStoredNickname() || (isWeapp() ? '' : getDefaultNickname())
+  )
+  const [avatar, setAvatar] = useState('')
+  const [wechatId, setWechatId] = useState('')
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
   const [addr, setAddr] = useState('')
   const [precise, setPrecise] = useState(false)
   const [locating, setLocating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [hint, setHint] = useState('')
+
+  // 小程序端：进入即静默换取 openid（更稳定的微信身份），失败则回退设备匿名身份
+  useEffect(() => {
+    if (!isWeapp()) return
+    weappLogin().then((oid) => {
+      if (oid) setWechatId(oid)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // 手动选择位置
   const [manualOpen, setManualOpen] = useState(false)
@@ -127,10 +142,14 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
   }
 
   const useWechat = async () => {
-    const n = await fetchWechatNickname()
-    if (n) {
-      setNick(n)
-      Taro.showToast({ title: '已获取微信昵称', icon: 'success' })
+    const prof = await fetchWechatProfile()
+    if (prof) {
+      if (prof.nickname) {
+        setNick(prof.nickname)
+        saveNickname(prof.nickname)
+      }
+      if (prof.avatarUrl) setAvatar(prof.avatarUrl)
+      Taro.showToast({ title: '已获取微信昵称/头像', icon: 'success' })
     } else {
       Taro.showToast({ title: '未获取到，可手动输入', icon: 'none' })
     }
@@ -141,11 +160,17 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
       Taro.showToast({ title: '请先获取或选择位置', icon: 'none' })
       return
     }
-    const name = nick.trim() || getDefaultNickname()
+    const name = nick.trim() || (isWeapp() ? '微信用户' : getDefaultNickname())
     saveNickname(name)
     setSubmitting(true)
     try {
-      const m: any = await api.joinMeetup(code, { nickname: name, lat: loc.lat, lng: loc.lng })
+      const m: any = await api.joinMeetup(code, {
+        nickname: name,
+        lat: loc.lat,
+        lng: loc.lng,
+        avatar: avatar || undefined,
+        wechat_id: wechatId || undefined,
+      })
       const id = m?.my_participant_id as string | undefined
       if (id) {
         Taro.setStorageSync(joinKey(code), id)
@@ -165,11 +190,16 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
       Taro.showToast({ title: '请先获取或选择位置', icon: 'none' })
       return
     }
-    const name = nick.trim() || getDefaultNickname()
+    const name = nick.trim() || (isWeapp() ? '微信用户' : getDefaultNickname())
     saveNickname(name)
     setSubmitting(true)
     try {
-      await api.updateParticipant(code, joinedPid, { nickname: name, lat: loc.lat, lng: loc.lng })
+      await api.updateParticipant(code, joinedPid, {
+        nickname: name,
+        lat: loc.lat,
+        lng: loc.lng,
+        avatar: avatar || undefined,
+      })
       Taro.showToast({ title: '位置已更新', icon: 'success' })
       onChange()
     } catch (e: any) {
@@ -195,6 +225,36 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
     return (
       <Section title='你已加入' icon='user' tone='green'>
         <View style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {avatar ? (
+            <Image
+              src={avatar}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 999,
+                border: '1px solid rgba(16,185,129,0.3)',
+                flexShrink: 0,
+              }}
+              mode='aspectFill'
+            />
+          ) : (
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 999,
+                background: 'rgba(16,185,129,0.15)',
+                color: '#059669',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+            >
+              {(nick || '匿名用户')?.[0] || '?'}
+            </View>
+          )}
           <View
             style={{
               flex: 1,
@@ -228,6 +288,26 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
             <Icon name='target' size={14} color='#059669' /> 更新我的位置
           </Button>
         </View>
+        {isWeapp() && (
+          <View style={{ marginTop: 10 }}>
+            <Button
+              size='mini'
+              onClick={useWechat}
+              style={{
+                background: 'rgba(16,185,129,0.1)',
+                color: '#059669',
+                border: '1px solid rgba(16,185,129,0.3)',
+                borderRadius: 999,
+                padding: '6px 14px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <Icon name='user' size={14} color='#059669' /> 用微信昵称/头像
+            </Button>
+          </View>
+        )}
         {hint ? (
           <Text style={{ display: 'block', marginTop: 8, fontSize: 12, color: '#9a6a00' }}>{hint}</Text>
         ) : null}
@@ -263,8 +343,15 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
 
       {/* 昵称 */}
       <View style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {avatar && (
+          <Image
+            src={avatar}
+            style={{ width: 36, height: 36, borderRadius: 999, border: '1px solid rgba(0,0,0,0.08)', flexShrink: 0 }}
+            mode='aspectFill'
+          />
+        )}
         <Input
-          placeholder='昵称（默认匿名用户xx）'
+          placeholder={isWeapp() ? '昵称（点「用微信昵称/头像」）' : '昵称（默认匿名用户xx）'}
           value={nick}
           onInput={(e) => setNick(e.detail.value)}
           style={{
@@ -291,7 +378,7 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
               gap: 4,
             }}
           >
-            用微信昵称
+            用微信昵称/头像
           </Button>
         )}
       </View>

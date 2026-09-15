@@ -50,6 +50,8 @@ class Participant(Base):
     meetup_id = Column(String(36), ForeignKey("meetups.id"))
     user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
     nickname = Column(String(64))
+    avatar = Column(String(512), nullable=True)       # 微信头像 URL（小程序端 getUserProfile 获取）
+    wechat_id = Column(String(128), nullable=True, index=True)  # 微信 openid（小程序匿名身份，更稳定）
     lat = Column(DECIMAL(10, 7))
     lng = Column(DECIMAL(10, 7))
     joined_at = Column(DateTime, default=_now)

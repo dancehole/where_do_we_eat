@@ -1,4 +1,4 @@
-import { View, Text, Button } from '@tarojs/components'
+import { View, Text, Button, Image } from '@tarojs/components'
 import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
 import { api } from '../../services/api'
@@ -10,6 +10,7 @@ import MapView from '../../components/MapView'
 import JoinMeetup, { joinKey } from '../../components/JoinMeetup'
 import ManualAddParticipant from '../../components/ManualAddParticipant'
 import { useResponsive, tokens } from '../../hooks/useResponsive'
+import { isWeapp } from '../../utils/user'
 
 export default function MeetupDetail() {
   const router = useRouter()
@@ -111,38 +112,82 @@ export default function MeetupDetail() {
         onJoined={(pid) => setMyPid(pid)}
       />
 
-      {/* 分享链接：自动进入碰面后仍能一键转发 */}
+      {/* 分享碰面：浏览器复制链接；小程序用 open-type=share 触发微信转发（携带碰面码，好友点开即加入） */}
       <Section title='分享碰面' icon='share' tone='green'>
-        <View style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <Text
-            style={{
-              flex: '1 1 200px',
-              minWidth: 0,
-              fontSize: 12,
-              color: '#6b6b6b',
-              wordBreak: 'break-all',
-            }}
-          >
-            {m.share_url || `碰面码 ${m.code}`}
-          </Text>
-          <Button
-            size='mini'
-            onClick={copyShare}
-            style={{
-              background: 'rgba(16,185,129,0.1)',
-              color: '#059669',
-              border: '1px solid rgba(16,185,129,0.3)',
-              borderRadius: 999,
-              padding: '6px 14px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              fontSize: 12,
-            }}
-          >
-            <Icon name='copy' size={12} color='#059669' /> 复制链接
-          </Button>
-        </View>
+        {isWeapp() ? (
+          <View>
+            <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginBottom: 8 }}>
+              点「邀请好友」通过微信转发，好友点开即可带着位置加入碰面。
+            </Text>
+            <View style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Button
+                openType='share'
+                size='mini'
+                style={{
+                  background: 'rgba(16,185,129,0.12)',
+                  color: '#059669',
+                  border: '1px solid rgba(16,185,129,0.35)',
+                  borderRadius: 999,
+                  padding: '8px 16px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontSize: 13,
+                }}
+              >
+                <Icon name='share' size={14} color='#059669' /> 邀请好友（微信转发）
+              </Button>
+              <Button
+                size='mini'
+                onClick={copyShare}
+                style={{
+                  background: 'rgba(16,185,129,0.1)',
+                  color: '#059669',
+                  border: '1px solid rgba(16,185,129,0.3)',
+                  borderRadius: 999,
+                  padding: '6px 14px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontSize: 12,
+                }}
+              >
+                <Icon name='copy' size={12} color='#059669' /> 复制链接
+              </Button>
+            </View>
+          </View>
+        ) : (
+          <View style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Text
+              style={{
+                flex: '1 1 200px',
+                minWidth: 0,
+                fontSize: 12,
+                color: '#6b6b6b',
+                wordBreak: 'break-all',
+              }}
+            >
+              {m.share_url || `碰面码 ${m.code}`}
+            </Text>
+            <Button
+              size='mini'
+              onClick={copyShare}
+              style={{
+                background: 'rgba(16,185,129,0.1)',
+                color: '#059669',
+                border: '1px solid rgba(16,185,129,0.3)',
+                borderRadius: 999,
+                padding: '6px 14px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                fontSize: 12,
+              }}
+            >
+              <Icon name='copy' size={12} color='#059669' /> 复制链接
+            </Button>
+          </View>
+        )}
       </Section>
 
       {/* 手动添加参与者：帮朋友报位置（昵称 + 地址） */}
@@ -174,22 +219,37 @@ export default function MeetupDetail() {
                       gap: 12,
                     }}
                   >
-                    <View
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 999,
-                        background:
-                          idx === 0 ? 'rgba(255,107,53,0.15)' : 'rgba(59,130,246,0.15)',
-                        color: idx === 0 ? '#ff6b35' : '#3b82f6',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 700,
-                      }}
-                    >
-                      {p.nickname?.[0] || '?'}
-                    </View>
+                    {p.avatar ? (
+                      <Image
+                        src={p.avatar}
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 999,
+                          border: '1px solid rgba(0,0,0,0.06)',
+                          flexShrink: 0,
+                        }}
+                        mode='aspectFill'
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 999,
+                          background:
+                            idx === 0 ? 'rgba(255,107,53,0.15)' : 'rgba(59,130,246,0.15)',
+                          color: idx === 0 ? '#ff6b35' : '#3b82f6',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 700,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {p.nickname?.[0] || '?'}
+                      </View>
+                    )}
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={{ fontWeight: 600, color: '#2b2b2b' }}>
                         {p.nickname}
@@ -302,18 +362,51 @@ export default function MeetupDetail() {
                     background: '#fff',
                     borderRadius: 10,
                     border: '1px solid rgba(0,0,0,0.04)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
                   }}
                 >
-                  <Text style={{ fontWeight: 600 }}>
-                    {p.nickname}
-                    {p.id === myPid && <Text style={{ color: '#059669' }}>（你）</Text>}
-                    （{p.lat.toFixed(3)}, {p.lng.toFixed(3)}）
-                  </Text>
-                  {p.distance_km != null && (
-                    <Text style={{ marginLeft: 8, color: '#6b6b6b', fontSize: 12 }}>
-                      距我 {p.distance_km} km
-                    </Text>
+                  {p.avatar ? (
+                    <Image
+                      src={p.avatar}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 999,
+                        border: '1px solid rgba(0,0,0,0.06)',
+                        flexShrink: 0,
+                      }}
+                      mode='aspectFill'
+                    />
+                  ) : (
+                    <View
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 999,
+                        background: 'rgba(59,130,246,0.15)',
+                        color: '#3b82f6',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 700,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {p.nickname?.[0] || '?'}
+                    </View>
                   )}
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ fontWeight: 600 }}>
+                      {p.nickname}
+                      {p.id === myPid && <Text style={{ color: '#059669' }}>（你）</Text>}
+                    </Text>
+                    <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b' }}>
+                      （{p.lat.toFixed(3)}, {p.lng.toFixed(3)}）
+                      {p.distance_km != null && ` · 距我 ${p.distance_km} km`}
+                    </Text>
+                  </View>
                 </View>
               ))}
             </View>

@@ -64,7 +64,8 @@ def _serialize(m: Meetup, db: Session, request: Optional[Request]):
             d = round(geo.haversine(float(creator.lat), float(creator.lng),
                                     float(p.lat), float(p.lng)), 1)
         participants.append(ParticipantOut(
-            id=p.id, nickname=p.nickname, lat=float(p.lat), lng=float(p.lng),
+            id=p.id, nickname=p.nickname, avatar=p.avatar, wechat_id=p.wechat_id,
+            lat=float(p.lat), lng=float(p.lng),
             distance_km=d,
         ))
     base = str(request.base_url)[:-1] if request else ""
@@ -136,7 +137,8 @@ def join_meetup(code: str, loc: LocationIn, db: Session = Depends(get_db), reque
     if m.status == "ended":
         raise HTTPException(400, "碰面已结束，不能加入")
     part = Participant(id=str(uuid.uuid4()), meetup_id=m.id, user_id=None,
-                       nickname=loc.nickname or "朋友", lat=loc.lat, lng=loc.lng)
+                       nickname=loc.nickname or "朋友", avatar=loc.avatar,
+                       wechat_id=loc.wechat_id, lat=loc.lat, lng=loc.lng)
     db.add(part)
     db.commit()
     db.refresh(part)
@@ -175,6 +177,8 @@ def update_participant(
         p.lng = body.lng
     if body.nickname:
         p.nickname = body.nickname
+    if body.avatar is not None:
+        p.avatar = body.avatar
     db.commit()
     out = _serialize(m, db, request)
     out.my_participant_id = p.id

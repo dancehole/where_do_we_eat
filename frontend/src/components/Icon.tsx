@@ -55,6 +55,10 @@ const ICONS: Record<string, string> = {
   // 我的（用户）
   user:
     '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c0-3.8 3.1-6.5 7-6.5s7 2.7 7 6.5"/>',
+  // 折叠箭头（下）
+  chevron_down: '<path d="M6 9l6 6 6-6"/>',
+  // 折叠箭头（右）
+  chevron_right: '<path d="M9 6l6 6-6 6"/>',
 }
 
 export type IconName = keyof typeof ICONS

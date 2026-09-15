@@ -7,6 +7,8 @@ class LocationIn(BaseModel):
     lat: float
     lng: float
     nickname: Optional[str] = None
+    avatar: Optional[str] = None
+    wechat_id: Optional[str] = None
 
 
 class MeetupCreate(BaseModel):
@@ -18,6 +20,8 @@ class MeetupCreate(BaseModel):
 class ParticipantOut(BaseModel):
     id: str
     nickname: str
+    avatar: Optional[str] = None
+    wechat_id: Optional[str] = None
     lat: float
     lng: float
     distance_km: Optional[float] = None
@@ -28,6 +32,7 @@ class ParticipantUpdate(BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
     nickname: Optional[str] = None
+    avatar: Optional[str] = None
 
 
 class MeetupOut(BaseModel):

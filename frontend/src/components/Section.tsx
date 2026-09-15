@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 import { View, Text } from '@tarojs/components'
 import { useResponsive, tokens } from '../hooks/useResponsive'
 import Icon, { IconName } from './Icon'
@@ -14,6 +14,10 @@ export interface SectionProps {
   padding?: number
   /** 取消内部 padding，便于承载地图等满宽内容 */
   flush?: boolean
+  /** 可折叠：标题栏可点击展开/收起 */
+  collapsible?: boolean
+  /** 折叠默认是否展开（仅 collapsible 时有效），默认 true */
+  defaultOpen?: boolean
 }
 
 const TONE_BG: Record<NonNullable<SectionProps['tone']>, string> = {
@@ -41,10 +45,17 @@ export default function Section({
   tone = 'neutral',
   padding,
   flush,
+  collapsible,
+  defaultOpen = true,
 }: SectionProps) {
   const { mode } = useResponsive()
   const t = tokens(mode)
   const pad = padding ?? t.gap
+  const [open, setOpen] = useState(defaultOpen)
+
+  const headerVisible = title || extra || collapsible
+  const headerMargin = collapsible && !open ? 0 : title ? t.gap - 4 : 0
+
   return (
     <View
       style={{
@@ -56,14 +67,16 @@ export default function Section({
         boxShadow: '0 2px 8px rgba(180, 100, 40, 0.05)',
       }}
     >
-      {(title || extra) && (
+      {headerVisible && (
         <View
+          onClick={collapsible ? () => setOpen((v) => !v) : undefined}
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            marginBottom: title ? t.gap - 4 : 0,
+            marginBottom: headerMargin,
             gap: 8,
+            cursor: collapsible ? 'pointer' : 'default',
           }}
         >
           {title && (
@@ -74,10 +87,15 @@ export default function Section({
               </Text>
             </View>
           )}
-          {extra}
+          <View style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {extra}
+            {collapsible && (
+              <Icon name={open ? 'chevron_down' : 'chevron_right'} size={16} color='#9ca3af' />
+            )}
+          </View>
         </View>
       )}
-      {children}
+      {(!collapsible || open) && children}
     </View>
   )
 }
