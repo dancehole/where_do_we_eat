@@ -27,6 +27,7 @@ EXTRA_COLUMNS = {
     },
     "meetups": {
         "rule": "VARCHAR(64) NULL",
+        "schedule_id": "VARCHAR(36) NULL",
     },
 }
 

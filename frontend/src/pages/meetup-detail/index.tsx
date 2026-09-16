@@ -230,6 +230,52 @@ export default function MeetupDetail() {
       {/* 手动添加参与者：帮朋友报位置（昵称 + 地址） */}
       <ManualAddParticipant code={code} ended={m.status === 'ended'} onChange={load} />
 
+      {/* 时间排期：创建时关联了排期则显示，可去填写 / 直接看合并结果 */}
+      {m.schedule_code && (
+        <Section title='时间排期' icon='calendar' tone='green'>
+          <View style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+            <Icon name='calendar' size={16} color='#059669' />
+            <Text style={{ fontSize: 14, fontWeight: 600, color: '#2b2b2b' }}>
+              {m.schedule_title || '已关联排期'}
+            </Text>
+            <Text style={{ fontSize: 12, color: '#9ca3af' }}>「{m.schedule_code}」</Text>
+          </View>
+          <View style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button
+              size='mini'
+              onClick={() => Taro.navigateTo({ url: `/pages/schedule-detail/index?code=${m.schedule_code}` })}
+              style={{
+                background: '#fff',
+                color: '#ff6b35',
+                border: '1px solid #ff6b35',
+                borderRadius: 999,
+                padding: '8px 16px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <Icon name='calendar' size={14} /> 填写 / 查看时间
+            </Button>
+            <Button
+              size='mini'
+              onClick={() => Taro.navigateTo({ url: `/pages/schedule-merge/index?code=${m.schedule_code}` })}
+              style={{
+                background: '#ff6b35',
+                color: '#fff',
+                borderRadius: 999,
+                padding: '8px 16px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <Icon name='target' size={14} color='#fff' /> 查看合并排期
+            </Button>
+          </View>
+        </Section>
+      )}
+
       {isDesktop ? (
         <View
           style={{

@@ -1,4 +1,4 @@
-import { View, Text, Button, Input } from '@tarojs/components'
+import { View, Text, Button, Input, Picker, Switch } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useState } from 'react'
 import { api } from '../../services/api'
@@ -11,6 +11,19 @@ import MapPicker from '../../components/MapPicker'
 import { amapLocate, amapGeocode, getLocateEnv, weappReverseGeocode } from '../../utils/amap'
 import { joinKey } from '../../components/JoinMeetup'
 import { useResponsive, tokens } from '../../hooks/useResponsive'
+import { fmtDate, todayStr, scheduleJoinKey } from '../../utils/schedule'
+
+/** 从今天起 n 天后的日期字符串（本地日历） */
+function addDays(n: number): string {
+  const d = new Date()
+  const base = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  return fmtDate(new Date(base.getTime() + n * 86400000))
+}
+const SCHED_PRESETS = [
+  { label: '近 3 天', days: 2 },
+  { label: '近 1 周', days: 6 },
+  { label: '近 2 周', days: 13 },
+]
 
 export default function MeetupCreate() {
   const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
@@ -30,6 +43,31 @@ export default function MeetupCreate() {
   const [pickCenter, setPickCenter] = useState<{ lat: number; lng: number } | null>(null)
   /** 「其他方式」（手动输入经纬度）是否展开——次选，默认折叠 */
   const [otherOpen, setOtherOpen] = useState(false)
+
+  // ── 可选：时间排期 ──────────────────────────────────────────────────────────
+  /** 是否启用时间排期（勾选后把它关联到本次碰面） */
+  const [schedOn, setSchedOn] = useState(false)
+  /** 启用后：'new' = 顺手新建一个排期；'existing' = 选一个已有的排期 */
+  const [schedMode, setSchedMode] = useState<'new' | 'existing'>('new')
+  const [mySchedules, setMySchedules] = useState<any[]>([])
+  const [schedCode, setSchedCode] = useState('')
+  const [schedTitle, setSchedTitle] = useState('')
+  const [schedStart, setSchedStart] = useState(todayStr())
+  const [schedEnd, setSchedEnd] = useState(addDays(6))
+  const [schedGranular, setSchedGranular] = useState(false)
+
+  const toggleSched = (on: boolean) => {
+    setSchedOn(on)
+    if (on && schedMode === 'existing' && mySchedules.length === 0) {
+      api.listMySchedules().then((list: any[]) => setMySchedules(list || [])).catch(() => setMySchedules([]))
+    }
+  }
+  const pickMode = (mode: 'new' | 'existing') => {
+    setSchedMode(mode)
+    if (mode === 'existing' && mySchedules.length === 0) {
+      api.listMySchedules().then((list: any[]) => setMySchedules(list || [])).catch(() => setMySchedules([]))
+    }
+  }
 
   // 打开手动选择时，若还没有中心点，就用已定位到的大概位置作为地图中心
   const toggleManual = () => {
@@ -127,7 +165,40 @@ export default function MeetupCreate() {
       Taro.showToast({ title: '请先获取或手动选择位置', icon: 'none' })
       return
     }
-    const m = await api.createMeetup({ nickname: '我', lat: loc.lat, lng: loc.lng })
+    // 启用排期：先确定要关联的排期 code（新建 or 复用已有），再带进碰面
+    let scheduleCode: string | undefined
+    if (schedOn) {
+      if (schedMode === 'new') {
+        if (schedEnd < schedStart) {
+          Taro.showToast({ title: '排期结束日期不能早于开始', icon: 'none' })
+          return
+        }
+        try {
+          const s: any = await api.createSchedule({
+            title: schedTitle.trim() || '碰面时间',
+            start_date: schedStart,
+            end_date: schedEnd,
+            granular_hours: schedGranular,
+            nickname: '我',
+          })
+          if (s.my_participant_id) Taro.setStorageSync(scheduleJoinKey(s.code), s.my_participant_id)
+          scheduleCode = s.code
+        } catch {
+          Taro.showToast({ title: '排期创建失败', icon: 'none' })
+          return
+        }
+      } else {
+        if (!schedCode) {
+          Taro.showToast({ title: '请选择一个已有排期', icon: 'none' })
+          return
+        }
+        scheduleCode = schedCode
+      }
+    }
+    const m = await api.createMeetup({
+      nickname: '我', lat: loc.lat, lng: loc.lng,
+      schedule_code: scheduleCode,
+    })
     // 记录本人参与者 id：打开自己分享链接时识别为「已加入」，不会重复加入
     if (m.my_participant_id) Taro.setStorageSync(joinKey(m.code), m.my_participant_id)
     useStore.getState().setMeetupCode(m.code)
@@ -342,6 +413,128 @@ export default function MeetupCreate() {
         </Section>
       )}
 
+      <Section title='时间排期（可选）' icon='calendar' tone='green'>
+        <View style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flex: 1, marginRight: 10 }}>
+            <Text style={{ fontSize: 14, color: '#2b2b2b', fontWeight: 600 }}>启用时间排期</Text>
+            <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginTop: 2 }}>
+              关联一个排期，大家一起勾选有空的时间；碰面页可直接跳到合并结果
+            </Text>
+          </View>
+          <Switch checked={schedOn} onChange={(e) => toggleSched(e.detail.value)} color='#ff6b35' />
+        </View>
+
+        {schedOn && (
+          <View style={{ marginTop: 12 }}>
+            {/* 模式切换：新建 / 选已有 */}
+            <View style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              {([
+                { v: 'new' as const, label: '新建排期' },
+                { v: 'existing' as const, label: '选择已有' },
+              ]).map((o) => (
+                <View
+                  key={o.v}
+                  onClick={() => pickMode(o.v)}
+                  style={{
+                    padding: '6px 14px', borderRadius: 999, fontSize: 13, cursor: 'pointer',
+                    background: schedMode === o.v ? 'rgba(255,107,53,0.12)' : '#fff',
+                    color: schedMode === o.v ? '#ff6b35' : '#6b7280',
+                    border: schedMode === o.v ? '1.5px solid #ff6b35' : '1px solid rgba(0,0,0,0.08)',
+                    fontWeight: schedMode === o.v ? 600 : 400,
+                  }}
+                >
+                  {o.label}
+                </View>
+              ))}
+            </View>
+
+            {schedMode === 'new' ? (
+              <View>
+                <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginBottom: 6 }}>标题</Text>
+                <Input
+                  placeholder='如：碰面时间'
+                  value={schedTitle}
+                  onInput={(e) => setSchedTitle(e.detail.value)}
+                  style={inputBox}
+                />
+                <View style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+                  <View style={{ flex: '1 1 140px' }}>
+                    <Text style={{ fontSize: 12, color: '#6b6b6b' }}>开始</Text>
+                    <Picker mode='date' value={schedStart} onChange={(e) => setSchedStart(e.detail.value)}>
+                      <View style={pickerBox}>{schedStart}</View>
+                    </Picker>
+                  </View>
+                  <View style={{ flex: '1 1 140px' }}>
+                    <Text style={{ fontSize: 12, color: '#6b6b6b' }}>结束</Text>
+                    <Picker mode='date' value={schedEnd} onChange={(e) => setSchedEnd(e.detail.value)}>
+                      <View style={pickerBox}>{schedEnd}</View>
+                    </Picker>
+                  </View>
+                </View>
+                <View style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                  {SCHED_PRESETS.map((p) => (
+                    <View
+                      key={p.label}
+                      onClick={() => {
+                        setSchedStart(todayStr())
+                        setSchedEnd(addDays(p.days))
+                      }}
+                      style={{
+                        padding: '5px 12px', borderRadius: 999, background: '#fff',
+                        border: '1px solid rgba(255,107,53,0.3)', color: '#ff6b35',
+                        fontSize: 12, cursor: 'pointer',
+                      }}
+                    >
+                      {p.label}
+                    </View>
+                  ))}
+                </View>
+                <View style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+                  <View style={{ flex: 1, marginRight: 10 }}>
+                    <Text style={{ fontSize: 13, color: '#2b2b2b', fontWeight: 600 }}>精确到小时</Text>
+                    <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginTop: 2 }}>
+                      开启后可按 9:00-11:00 等 6 个时段勾选
+                    </Text>
+                  </View>
+                  <Switch checked={schedGranular} onChange={(e) => setSchedGranular(e.detail.value)} color='#ff6b35' />
+                </View>
+              </View>
+            ) : mySchedules.length === 0 ? (
+              <Text style={{ fontSize: 13, color: '#9ca3af' }}>
+                还没有排期，切换到「新建排期」创建一个吧。
+              </Text>
+            ) : (
+              <View style={{ display: 'grid', gap: 8 }}>
+                {mySchedules.map((s: any) => {
+                  const on = schedCode === s.code
+                  return (
+                    <View
+                      key={s.id}
+                      onClick={() => setSchedCode(s.code)}
+                      style={{
+                        padding: 10, borderRadius: 10, cursor: 'pointer',
+                        background: on ? 'rgba(255,107,53,0.08)' : '#fff',
+                        border: on ? '1.5px solid #ff6b35' : '1px solid rgba(0,0,0,0.06)',
+                        display: 'flex', alignItems: 'center', gap: 8,
+                      }}
+                    >
+                      <Icon name='calendar' size={16} color={on ? '#ff6b35' : '#9ca3af'} />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={{ fontSize: 13, fontWeight: 600, color: '#2b2b2b' }}>{s.title}</Text>
+                        <Text style={{ display: 'block', fontSize: 11, color: '#9ca3af' }}>
+                          {s.start_date} ~ {s.end_date} · {s.granular_hours ? '精确到小时' : '按天'}
+                        </Text>
+                      </View>
+                      {on && <Text style={{ fontSize: 12, color: '#ff6b35', fontWeight: 600 }}>已选</Text>}
+                    </View>
+                  )
+                })}
+              </View>
+            )}
+          </View>
+        )}
+      </Section>
+
       <Button
         onClick={create}
         style={{
@@ -424,4 +617,22 @@ export default function MeetupCreate() {
       )}
     </PageContainer>
   )
+}
+
+const inputBox = {
+  background: '#fff',
+  border: '1px solid rgba(0,0,0,0.08)',
+  borderRadius: 10,
+  padding: '10px 12px',
+  fontSize: 14,
+  width: '100%',
+}
+const pickerBox = {
+  marginTop: 4,
+  background: '#fff',
+  border: '1px solid rgba(0,0,0,0.08)',
+  borderRadius: 10,
+  padding: '10px 12px',
+  fontSize: 14,
+  color: '#2b2b2b',
 }

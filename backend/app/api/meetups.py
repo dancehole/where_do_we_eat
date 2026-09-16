@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ..core.database import get_db
 from ..core.security import get_current_user
 from ..core.config import settings
-from ..models import User, Meetup, Participant, Restaurant, Preference
+from ..models import User, Meetup, Participant, Restaurant, Preference, Schedule
 from ..schemas import (
     MeetupCreate, LocationIn, MeetupOut, ParticipantOut,
     RestaurantFilter, PreferenceIn, RestaurantOut, ParticipantUpdate,
@@ -73,6 +73,8 @@ def _serialize(m: Meetup, db: Session, request: Optional[Request]):
     # 分享链接走前端基础地址（不要拿后端 8000 端口，那只是 API）
     frontend_base = settings.FRONTEND_BASE or base
     share_url = f"{frontend_base}/#/pages/meetup-detail/index?code={m.code}" if frontend_base else None
+    # 关联的排期：code 给前端跳转，title 用于展示
+    sched = db.query(Schedule).filter(Schedule.id == m.schedule_id).first() if m.schedule_id else None
     return MeetupOut(
         id=m.id, code=m.code, status=m.status, meetup_type=m.meetup_type,
         rule=m.rule,
@@ -81,6 +83,8 @@ def _serialize(m: Meetup, db: Session, request: Optional[Request]):
         created_at=m.created_at, participant_count=len(parts),
         participants=participants,
         share_url=share_url,
+        schedule_code=sched.code if sched else None,
+        schedule_title=sched.title if sched else None,
     )
 
 
@@ -108,6 +112,12 @@ def create_meetup(
 ):
     m = Meetup(id=str(uuid.uuid4()), code=_gen_code(db),
                creator_id=user.id, status="active")
+    # 可选：创建者勾选「启用排期」时，把已有排期 / 刚新建的排期关联进来
+    if body.schedule_code:
+        sch = db.query(Schedule).filter(Schedule.code == body.schedule_code).first()
+        if not sch:
+            raise HTTPException(400, "排期不存在")
+        m.schedule_id = sch.id
     db.add(m)
     db.commit()
     db.refresh(m)

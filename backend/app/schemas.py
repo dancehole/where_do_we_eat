@@ -15,6 +15,8 @@ class MeetupCreate(BaseModel):
     nickname: Optional[str] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
+    # 可选：创建碰面时顺手关联一个时间排期（排期需先创建，用其 code 关联）
+    schedule_code: Optional[str] = None
 
 
 class ParticipantOut(BaseModel):
@@ -49,6 +51,9 @@ class MeetupOut(BaseModel):
     share_url: Optional[str] = None
     # 本次操作产生的参与者 id（创建者本人 / 刚加入的人），供前端持久化识别「我」
     my_participant_id: Optional[str] = None
+    # 关联的时间排期（可空）：code 用于跳转，title 用于展示
+    schedule_code: Optional[str] = None
+    schedule_title: Optional[str] = None
 
 
 class MeetupRuleIn(BaseModel):

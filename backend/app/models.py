@@ -34,6 +34,8 @@ class Meetup(Base):
     # 用户手动选择的「碰面规则」（如 same_city:nearest / travel:time）。
     # 与自动判定的 meetup_type 分离：当前仅持久化用户选择，具体算法后续补充。
     rule = Column(String(64), nullable=True)
+    # 关联的时间排期（可选）：碰面解决「地点」、排期解决「时间」，由创建者决定是否启用
+    schedule_id = Column(String(36), ForeignKey("schedules.id"), nullable=True)
     center_lat = Column(DECIMAL(10, 7), nullable=True)
     center_lng = Column(DECIMAL(10, 7), nullable=True)
     created_at = Column(DateTime, default=_now)

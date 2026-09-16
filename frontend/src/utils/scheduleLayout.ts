@@ -5,9 +5,9 @@ import { useEffect, useRef, useState } from 'react'
  * 手机（视口 < WIDE_BP）：列宽 `minmax(34px, 1fr)` 自适应铺满，塞不下就横向拖动；
  *   格子 34×34、字号 10/9 —— 这套手感已定稿，不要动。
  *
- * PC（视口 ≥ WIDE_BP）：列宽 `minmax(0, 1fr)` **铺满父容器**（不再左右大面积留白），
- *   格子高度按实际列宽以 CELL_RATIO_PC（≈16:9）反推并 clamp，字号跟着放大；
- *   内容上限 CONTENT_MAX_W，只在超宽屏才居中不再拉伸（否则格子会被拉成扁条）。
+ * PC（视口 ≥ WIDE_BP）：列宽 `minmax(0, 1fr)` 自适应，但**单格宽度封顶 CELL_W_PC_MAX=100px**
+ *   （超宽屏不再把格子拉得过大：封顶后网格窄于容器，靠 innerStyle 的 margin:auto 居中）；
+ *   格子高度按实际列宽以 CELL_RATIO_PC（≈16:9）反推并 clamp，字号跟着放大。
  *
  * 用法：`const { boxRef, grid } = useGridMetrics(cols, granular)`，
  *   boxRef 挂到「带 overflow-x 的滚动容器」上，grid 提供模板/高度/字号。
@@ -19,6 +19,8 @@ export const GAP_DESKTOP = 6
 export const LABEL_W_MOBILE = 46
 export const LABEL_W_DESKTOP = 60
 export const CELL_MIN = 34
+/** PC 单格最大宽度：超过就不再撑大（网格会窄于父容器并居中），避免超宽屏格子过大 */
+export const CELL_W_PC_MAX = 100
 export const CELL_H_MOBILE = 34
 export const CELL_H_PC_MIN = 40
 export const CELL_H_PC_MAX = 78
@@ -75,12 +77,17 @@ export function computeMetrics(isWide: boolean, cols: number, boxW: number): Gri
   const labelW = isWide ? LABEL_W_DESKTOP : LABEL_W_MOBILE
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1200
   const guessW = isWide ? Math.max(720, vw - 72) : 360
-  const maxAvail = CONTENT_MAX_W - GRID_PAD * 2
+
+  // PC 内容宽度上限：既受 CONTENT_MAX_W 保护，也受「单格最大 100px」约束
+  // （单格封顶后网格不再铺满父容器，靠 innerStyle 的 margin:auto 居中）。
+  const capByCell = labelW + cols * CELL_W_PC_MAX + gap * cols + GRID_PAD * 2
+  const contentMaxW = isWide ? Math.min(CONTENT_MAX_W, capByCell) : CONTENT_MAX_W
+  const maxAvail = contentMaxW - GRID_PAD * 2
   const avail = Math.min((boxW > 0 ? boxW : guessW) - GRID_PAD * 2, maxAvail)
 
-  // PC：列宽由容器反推（列本身是 1fr，这里只用来算高度和字号）
+  // PC：列宽由容器反推（列本身是 1fr，这里只用来算高度和字号），并封顶 100px
   const cellW = isWide
-    ? Math.max(CELL_MIN, Math.floor((avail - labelW - gap * cols) / cols))
+    ? clamp(Math.floor((avail - labelW - gap * cols) / cols), CELL_MIN, CELL_W_PC_MAX)
     : CELL_MIN
   const cellH = isWide
     ? Math.round(clamp(cellW / CELL_RATIO_PC, CELL_H_PC_MIN, CELL_H_PC_MAX))
@@ -101,8 +108,9 @@ export function computeMetrics(isWide: boolean, cols: number, boxW: number): Gri
       ? `${labelW}px repeat(${cols}, minmax(0, 1fr))`
       : `${labelW}px repeat(${cols}, minmax(${CELL_MIN}px, 1fr))`,
     minWidth: isWide ? 0 : labelW + cols * CELL_MIN + cols * gap + GRID_PAD * 2,
-    contentMaxW: CONTENT_MAX_W,
-    fill: isWide && (boxW > 0 ? boxW - GRID_PAD * 2 : avail) < maxAvail,
+    contentMaxW,
+    /** 是否「铺满父容器」而没有触到单格上限 */
+    fill: isWide && cellW < CELL_W_PC_MAX,
   }
 }
 
