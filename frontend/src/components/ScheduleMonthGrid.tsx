@@ -18,6 +18,8 @@ interface Props {
   onClick?: (date: string) => void
   /** 是否输出 data-cell 属性（供拖拽涂抹用 elementFromPoint 命中） */
   attrDataCell?: boolean
+  /** 编辑态在手机端锁纵向滚动：'none' 手指拖动不触发页面滚动（翻页靠两侧空白） */
+  touchAction?: 'none' | 'pan-x' | 'auto'
 }
 
 interface MonthBucket {
@@ -65,6 +67,7 @@ export default function ScheduleMonthGrid({
   onTouchStart,
   onClick,
   attrDataCell,
+  touchAction,
 }: Props) {
   const months = buildMonths(days)
 
@@ -115,6 +118,7 @@ export default function ScheduleMonthGrid({
                       userSelect: 'none',
                       WebkitTapHighlightColor: 'transparent',
                       transition: 'background .12s ease',
+                      touchAction: touchAction,
                     }}
                   >
                     <Text style={{ fontSize: 13, fontWeight: isToday ? 700 : 600, color: textOf(d), lineHeight: 1.1 }}>

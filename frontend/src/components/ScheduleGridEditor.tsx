@@ -14,11 +14,14 @@ import ScheduleMonthGrid from './ScheduleMonthGrid'
  * 两个问题一并解决，且不必用 Taro 的 ScrollView（H5 上它的滚动容器行为不稳定）。 */
 const LABEL_W = 46
 const CELL_MIN = 34
+/** PC 端固定列宽：46×34≈4:3，避免 1fr 在宽屏被拉得过宽 */
+const CELL_W_PC = 46
 const GAP = 4
 const COLS = SLOTS.length + 1 // 全天 + 6 个时段
-const TEMPLATE = `${LABEL_W}px repeat(${COLS}, minmax(${CELL_MIN}px, 1fr))`
-/** 内容最少需要的宽度（含 8px 内边距），再窄就横向滚动 */
+/** 内容最少需要的宽度（含 8px 内边距），手机端再窄就横向滚动 */
 const MIN_W = LABEL_W + COLS * CELL_MIN + COLS * GAP + 16
+/** 视口宽度 ≥ 该值按 PC 处理（固定列宽、居中）；否则走手机自适应铺满 + 横滚 */
+const WIDE_BP = 600
 
 interface Props {
   availability: any
@@ -76,6 +79,34 @@ export default function ScheduleGridEditor({
   const [isTouch] = useState(detectTouch)
   /** 手指拖动 = 涂抹（true，默认）/ 查看（false，交给浏览器滚动） */
   const [paintOnDrag, setPaintOnDrag] = useState(true)
+
+  /** 是否宽屏（PC/平板）：决定格子用「固定宽度居中」还是「自适应铺满 + 横滚」 */
+  const [isWide, setIsWide] = useState(() => {
+    if (process.env.TARO_ENV !== 'h5') return false
+    if (typeof window === 'undefined') return false
+    return window.innerWidth >= WIDE_BP
+  })
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5' || typeof window === 'undefined') return
+    const onResize = () => setIsWide(window.innerWidth >= WIDE_BP)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  /** 手机端编辑时禁用纵向滚动：涂抹模式完全不滚（none），查看模式只让横向滚矩阵（pan-x）；
+   *  页面纵向翻页改由网格两侧空白区承担。只读（合并图）则交给浏览器默认行为。 */
+  const gridTouch: 'none' | 'pan-x' | 'auto' = readOnly
+    ? 'auto'
+    : paintOnDrag ? 'none' : 'pan-x'
+
+  /** 网格列模板：PC 固定列宽居中，手机自适应铺满 */
+  const TEMPLATE = isWide
+    ? `${LABEL_W}px repeat(${COLS}, ${CELL_W_PC}px)`
+    : `${LABEL_W}px repeat(${COLS}, minmax(${CELL_MIN}px, 1fr))`
+  /** 网格内芯尺寸：PC 用 fit-content 居中（不再被拉满）；手机用 minWidth 保证可横滚 */
+  const innerStyle = isWide
+    ? { display: 'block', padding: 8, width: 'fit-content', margin: '0 auto', boxSizing: 'border-box' as const }
+    : { display: 'block', padding: 8, minWidth: MIN_W, boxSizing: 'border-box' as const }
 
   /* ── 手势 ───────────────────────────────────────────────────────────────────
    * 状态机在 utils/scheduleGesture（纯逻辑、可单测），这里只负责挂 DOM 监听：
@@ -254,6 +285,8 @@ export default function ScheduleGridEditor({
     cursor: 'pointer',
     WebkitTapHighlightColor: 'transparent',
     transition: 'background .12s ease',
+    // 继承网格容器的 touch-action：编辑态下手指拖动不会触发页面纵向滚动
+    touchAction: 'inherit',
   })
 
   const headStyle = (clickable: boolean, accent: boolean) => ({
@@ -268,6 +301,7 @@ export default function ScheduleGridEditor({
     alignItems: 'center',
     justifyContent: 'center',
     WebkitTapHighlightColor: 'transparent',
+    touchAction: 'inherit',
   })
 
   return (
@@ -319,8 +353,8 @@ export default function ScheduleGridEditor({
               WebkitOverflowScrolling: 'touch',
             }}
           >
-            <View style={{ display: 'block', padding: 8, minWidth: MIN_W, boxSizing: 'border-box' }}>
-              <View style={{ display: 'grid', gridTemplateColumns: TEMPLATE, gap: GAP }}>
+            <View style={innerStyle}>
+              <View style={{ display: 'grid', gridTemplateColumns: TEMPLATE, gap: GAP, touchAction: gridTouch }}>
                 {/* 表头 */}
                 <View />
                 <View onClick={() => !readOnly && fillDayColumn()} style={headStyle(!readOnly, false)}>
@@ -355,6 +389,7 @@ export default function ScheduleGridEditor({
                           justifyContent: 'center',
                           cursor: readOnly ? 'default' : 'pointer',
                           WebkitTapHighlightColor: 'transparent',
+                          touchAction: 'inherit',
                         }}
                       >
                         <Text
@@ -411,6 +446,7 @@ export default function ScheduleGridEditor({
               today={today}
               editable={!readOnly}
               attrDataCell={!readOnly}
+              touchAction={!readOnly ? 'none' : undefined}
               fillOf={(d) => {
                 const lv = dayLevel(availability, d)
                 return lv ? LEVEL_META[lv].fill : EMPTY_FILL

@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { View, Text } from '@tarojs/components'
 import {
   BUCKET_COLORS, BUCKET_LABELS, formatDateLabel, todayStr, recommendDay, runnerUpDays, DayRank,
@@ -6,11 +6,13 @@ import {
 } from '../utils/schedule'
 import ScheduleMonthGrid from './ScheduleMonthGrid'
 
-/* 与 ScheduleGridEditor 保持同一套窄屏尺寸（自适应铺满，塞不下可横向拖动） */
+/* 与 ScheduleGridEditor 保持同一套尺寸（手机自适应铺满；PC 固定列宽居中） */
 const LABEL_W = 46
 const CELL_MIN = 34
+const CELL_W_PC = 46
 const GAP = 4
 const MIN_W_BASE = LABEL_W + 7 * CELL_MIN + 7 * GAP + 16
+const WIDE_BP = 600
 
 interface Props {
   merge: any
@@ -29,6 +31,26 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
   const granular = !!merge.granular_hours
   const cells = merge.cells || {}
   const today = todayStr()
+
+  /** 宽屏判定：与编辑器一致（≥600 视为 PC，固定列宽居中；否则手机自适应铺满） */
+  const [isWide, setIsWide] = useState(() => {
+    if (process.env.TARO_ENV !== 'h5') return false
+    if (typeof window === 'undefined') return false
+    return window.innerWidth >= WIDE_BP
+  })
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5' || typeof window === 'undefined') return
+    const onResize = () => setIsWide(window.innerWidth >= WIDE_BP)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  const heatCols = slots.length + 1
+  const TEMPLATE = isWide
+    ? `${LABEL_W}px repeat(${heatCols}, ${CELL_W_PC}px)`
+    : `${LABEL_W}px repeat(${heatCols}, minmax(${CELL_MIN}px, 1fr))`
+  const innerStyle = isWide
+    ? { display: 'block', padding: 8, width: 'fit-content', margin: '0 auto', boxSizing: 'border-box' as const }
+    : { display: 'block', padding: 8, minWidth: MIN_W_BASE, boxSizing: 'border-box' as const }
 
   // 推荐日：只统计「有人作答」的日期；精确到小时时若「全天」列无人作答则按时段票数兜底。
   // 旧版算法用 `score = yes*2 - no`、初值 -1，导致无人作答的日期（分数 0）胜出，
@@ -99,11 +121,11 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
             background: '#fff', overflowX: 'auto', WebkitOverflowScrolling: 'touch',
           }}
         >
-          <View style={{ display: 'block', padding: 8, minWidth: MIN_W_BASE, boxSizing: 'border-box' }}>
+          <View style={innerStyle}>
             <View
               style={{
                 display: 'grid',
-                gridTemplateColumns: `${LABEL_W}px repeat(${slots.length + 1}, minmax(${CELL_MIN}px, 1fr))`,
+                gridTemplateColumns: TEMPLATE,
                 gap: GAP,
               }}
             >
