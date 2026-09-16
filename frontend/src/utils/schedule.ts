@@ -208,7 +208,8 @@ export interface DayRank {
  * 给区间内每一天打分并排序（只保留「至少有一人作答」的日期）。
  * ⚠️ 关键点：**无人作答的日期直接排除**，否则分数 0 会挤掉真正有人有空的日期
  *    （旧版 bug：09-15 无人作答却因为 0 > -1 被推荐成「0 人有空」）。
- * 精确到小时时，若「全天」列没人作答，则退化为统计该日 6 个时段的票数。
+ * 精确到小时时只按当天 6 个时段的票数汇总（「全天」列已移除，其遗留数据不计入）；
+ * 按天模式则按当天「全天」格的票数。
  */
 export function rankDays(merge: any): DayRank[] {
   const days: string[] = merge?.days || []
@@ -220,14 +221,9 @@ export function rankDays(merge: any): DayRank[] {
   for (const d of days) {
     const c = cells[d]
     if (!c) continue
-    let yes = c.day?.yes ?? 0
-    let maybe = c.day?.maybe ?? 0
-    let maybeNot = c.day?.maybe_not ?? 0
-    let no = c.day?.no ?? 0
-    let answered = yes + maybe + maybeNot + no
-
-    // 「全天」列无人作答时，用当天各时段票数兜底（避免精确到小时的排期算不出推荐日）
-    if (granular && answered === 0) {
+    let yes = 0, maybe = 0, maybeNot = 0, no = 0
+    if (granular) {
+      // 精细到小时：只按当天各时段票数汇总（「全天」列已移除，其遗留数据不再计入）
       for (const s of slots) {
         const sc = c.slots?.[s]
         if (!sc) continue
@@ -236,8 +232,13 @@ export function rankDays(merge: any): DayRank[] {
         maybeNot += sc.maybe_not ?? 0
         no += sc.no ?? 0
       }
-      answered = yes + maybe + maybeNot + no
+    } else {
+      yes = c.day?.yes ?? 0
+      maybe = c.day?.maybe ?? 0
+      maybeNot = c.day?.maybe_not ?? 0
+      no = c.day?.no ?? 0
     }
+    const answered = yes + maybe + maybeNot + no
     if (answered === 0) continue
 
     out.push({ date: d, yes, maybe, maybe_not: maybeNot, no, answered, score: yes * 2 + maybe - maybeNot - no * 2 })

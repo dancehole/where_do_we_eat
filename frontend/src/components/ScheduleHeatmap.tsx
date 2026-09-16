@@ -25,7 +25,8 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
   const today = todayStr()
 
   // ⚠️ 尺寸 hook 必须在 `if (!merge) return null` 之前调用，否则 hooks 顺序会变。
-  const heatCols = slots.length + 1
+  // 精细到小时：格列数 = 6 时段（已无「全天」列）。按天模式用周日历，不进这里。
+  const heatCols = slots.length
   const { boxRef, grid } = useGridMetrics(heatCols, granular)
 
   if (!merge) return null
@@ -40,7 +41,7 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
       }
     : { display: 'block', padding: GRID_PAD, minWidth: grid.minWidth, boxSizing: 'border-box' as const }
 
-  // 推荐日：只统计「有人作答」的日期；精确到小时时若「全天」列无人作答则按时段票数兜底。
+  // 推荐日：只统计「有人作答」的日期；精确到小时时按当天各时段票数汇总（已无「全天」列）。
   // 旧版算法用 `score = yes*2 - no`、初值 -1，导致无人作答的日期（分数 0）胜出，
   // 才会出现「推荐 09-15，但 0 人有空」这种结果。
   const best: DayRank | null = recommendDay(merge)
@@ -120,14 +121,6 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
             >
               {/* 表头 */}
               <View />
-              <View
-                style={{
-                  fontSize: grid.fSlot, textAlign: 'center', color: '#9ca3af',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                全天
-              </View>
               {slots.map((s) => {
                 const [st, en] = splitSlot(s)
                 return (
@@ -146,7 +139,6 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
 
               {days.map((d) => {
                 const isToday = d === today
-                const dc = dayBucket(d)
                 const isBest = best?.date === d
                 return (
                   <Fragment key={d}>
@@ -169,20 +161,6 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
                       <Text style={{ fontSize: grid.fWeekday, color: '#9ca3af', lineHeight: 1.2 }}>
                         {weekdayLabel(d)}
                       </Text>
-                    </View>
-
-                    {/* 全天格 */}
-                    <View
-                      onClick={() => onCellClick && onCellClick(d, null)}
-                      style={{
-                        height: grid.cellH, borderRadius: grid.radius,
-                        background: BUCKET_COLORS[dc],
-                        border: isToday ? '2px solid #ff6b35' : isBest ? '2px solid #ff6b35' : '1px solid rgba(0,0,0,0.08)',
-                        boxShadow: isBest && !isToday ? '0 0 0 2px rgba(255,107,53,0.55)' : 'none',
-                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}
-                    >
-                      <Text style={{ fontSize: grid.fCount, color: bucketTextColor(dc) }}>{dayCounts(d).yes}</Text>
                     </View>
 
                     {/* 时段格 */}

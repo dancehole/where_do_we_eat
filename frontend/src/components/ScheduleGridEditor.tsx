@@ -9,8 +9,8 @@ import { ScheduleGesture, TOUCH_MOUSE_GUARD_MS } from '../utils/scheduleGesture'
 import { useGridMetrics, GRID_PAD } from '../utils/scheduleLayout'
 import ScheduleMonthGrid from './ScheduleMonthGrid'
 
-/** 格子列数：全天 + 6 个时段（左侧日期标签列不计在内） */
-const COLS = SLOTS.length + 1
+/** 精细到小时：格子列数 = 6 个时段（左侧日期标签列不计在内；「全天」列已移除） */
+const COLS = SLOTS.length
 
 interface Props {
   availability: any
@@ -117,10 +117,10 @@ export default function ScheduleGridEditor({
   }
 
   // ── 整行 / 整列快捷填充（都用当前画笔） ──────────────────────────────────────
-  /** 点日期标签：当天「全天」+ 6 个时段一起填成画笔色 */
+  /** 点日期标签：当天 6 个时段一起填成画笔色 */
   const fillWholeDay = (date: string) => {
     if (!onChange) return
-    let nv = setDayLevel(availability, date, brush)
+    let nv = availability || {}
     for (const s of SLOTS) nv = setSlotLevel(nv, date, s, brush)
     onChange(nv)
   }
@@ -129,13 +129,6 @@ export default function ScheduleGridEditor({
     if (!onChange) return
     let nv = availability || {}
     for (const d of days) nv = setSlotLevel(nv, d, slot, brush)
-    onChange(nv)
-  }
-  /** 点「全天」表头：所有日期的「全天」填成画笔色 */
-  const fillDayColumn = () => {
-    if (!onChange) return
-    let nv = availability || {}
-    for (const d of days) nv = setDayLevel(nv, d, brush)
     onChange(nv)
   }
 
@@ -340,9 +333,6 @@ export default function ScheduleGridEditor({
               <View style={{ display: 'grid', gridTemplateColumns: TEMPLATE, gap: grid.gap, touchAction: gridTouch }}>
                 {/* 表头 */}
                 <View />
-                <View onClick={() => !readOnly && fillDayColumn()} style={headStyle(!readOnly, false)}>
-                  全天
-                </View>
                 {SLOTS.map((s) => {
                   const [st, en] = splitSlot(s)
                   return (
@@ -356,7 +346,6 @@ export default function ScheduleGridEditor({
                 {/* 每一天一行 */}
                 {days.map((d) => {
                   const isToday = d === today
-                  const dl = dayLevel(availability, d)
                   return (
                     <Fragment key={d}>
                       {/* 日期标签（吸顶在左侧，横向滚动时始终可见） */}
@@ -389,15 +378,6 @@ export default function ScheduleGridEditor({
                           {weekdayLabel(d)}
                         </Text>
                       </View>
-
-                      {/* 全天格 */}
-                      <View
-                        data-cell={cellKey(d, null)}
-                        style={cellStyle(dl, isToday)}
-                        onMouseDown={handleCellDown(d, null)}
-                        onTouchStart={handleCellTouchStart(d, null)}
-                        onClick={handleCellClick(d, null)}
-                      />
 
                       {/* 6 个时段格 */}
                       {SLOTS.map((s) => (
