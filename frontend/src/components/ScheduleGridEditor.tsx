@@ -6,22 +6,11 @@ import {
   shortDate, weekdayLabel, splitSlot,
 } from '../utils/schedule'
 import { ScheduleGesture, TOUCH_MOUSE_GUARD_MS } from '../utils/scheduleGesture'
+import { useGridMetrics, GRID_PAD } from '../utils/scheduleLayout'
 import ScheduleMonthGrid from './ScheduleMonthGrid'
 
-/* ── 窄屏横向矩阵的尺寸常量 ──────────────────────────────────────────────────
- * 用 CSS Grid + `minmax(34px, 1fr)`：能塞下就自动均分铺满（多数手机无需横向滚动），
- * 塞不下时才溢出 → 外层 overflow-x 可拖动查看。这样「显示不全」和「不能左右拖动」
- * 两个问题一并解决，且不必用 Taro 的 ScrollView（H5 上它的滚动容器行为不稳定）。 */
-const LABEL_W = 46
-const CELL_MIN = 34
-/** PC 端固定列宽：46×34≈4:3，避免 1fr 在宽屏被拉得过宽 */
-const CELL_W_PC = 46
-const GAP = 4
-const COLS = SLOTS.length + 1 // 全天 + 6 个时段
-/** 内容最少需要的宽度（含 8px 内边距），手机端再窄就横向滚动 */
-const MIN_W = LABEL_W + COLS * CELL_MIN + COLS * GAP + 16
-/** 视口宽度 ≥ 该值按 PC 处理（固定列宽、居中）；否则走手机自适应铺满 + 横滚 */
-const WIDE_BP = 600
+/** 格子列数：全天 + 6 个时段（左侧日期标签列不计在内） */
+const COLS = SLOTS.length + 1
 
 interface Props {
   availability: any
@@ -80,18 +69,10 @@ export default function ScheduleGridEditor({
   /** 手指拖动 = 涂抹（true，默认）/ 查看（false，交给浏览器滚动） */
   const [paintOnDrag, setPaintOnDrag] = useState(true)
 
-  /** 是否宽屏（PC/平板）：决定格子用「固定宽度居中」还是「自适应铺满 + 横滚」 */
-  const [isWide, setIsWide] = useState(() => {
-    if (process.env.TARO_ENV !== 'h5') return false
-    if (typeof window === 'undefined') return false
-    return window.innerWidth >= WIDE_BP
-  })
-  useEffect(() => {
-    if (process.env.TARO_ENV !== 'h5' || typeof window === 'undefined') return
-    const onResize = () => setIsWide(window.innerWidth >= WIDE_BP)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
+  /** 响应式尺寸：手机自适应铺满+横滚；PC 铺满父容器（格子高度按列宽反推）。
+   *  量容器宽度要用 boxRef（见下面网格容器上的 ref），所以尺寸放在 hook 里统一算。 */
+  const { boxRef, grid } = useGridMetrics(COLS, granular)
+  const isWide = grid.isWide
 
   /** 手机端编辑时禁用纵向滚动：涂抹模式完全不滚（none），查看模式只让横向滚矩阵（pan-x）；
    *  页面纵向翻页改由网格两侧空白区承担。只读（合并图）则交给浏览器默认行为。 */
@@ -99,14 +80,15 @@ export default function ScheduleGridEditor({
     ? 'auto'
     : paintOnDrag ? 'none' : 'pan-x'
 
-  /** 网格列模板：PC 固定列宽居中，手机自适应铺满 */
-  const TEMPLATE = isWide
-    ? `${LABEL_W}px repeat(${COLS}, ${CELL_W_PC}px)`
-    : `${LABEL_W}px repeat(${COLS}, minmax(${CELL_MIN}px, 1fr))`
-  /** 网格内芯尺寸：PC 用 fit-content 居中（不再被拉满）；手机用 minWidth 保证可横滚 */
+  /** 网格列模板：PC 用 1fr 铺满父容器；手机自适应铺满 + 塞不下横向拖动 */
+  const TEMPLATE = grid.template
+  /** 网格内芯：PC 宽度 100%（上限 CONTENT_MAX_W，超宽屏才居中）；手机给 minWidth 保证可横滚 */
   const innerStyle = isWide
-    ? { display: 'block', padding: 8, width: 'fit-content', margin: '0 auto', boxSizing: 'border-box' as const }
-    : { display: 'block', padding: 8, minWidth: MIN_W, boxSizing: 'border-box' as const }
+    ? {
+        display: 'block', padding: GRID_PAD, width: '100%', maxWidth: grid.contentMaxW,
+        margin: '0 auto', boxSizing: 'border-box' as const,
+      }
+    : { display: 'block', padding: GRID_PAD, minWidth: grid.minWidth, boxSizing: 'border-box' as const }
 
   /* ── 手势 ───────────────────────────────────────────────────────────────────
    * 状态机在 utils/scheduleGesture（纯逻辑、可单测），这里只负责挂 DOM 监听：
@@ -275,8 +257,8 @@ export default function ScheduleGridEditor({
     : '选好画笔后按住拖动即可批量涂抹；轻点某天循环切换等级。'
 
   const cellStyle = (level: Level, isToday: boolean) => ({
-    height: 34,
-    borderRadius: 7,
+    height: grid.cellH,
+    borderRadius: grid.radius,
     background: levelFill(level),
     border: isToday ? '2px solid #ff6b35' : '1px solid rgba(0,0,0,0.08)',
     display: 'flex',
@@ -290,7 +272,7 @@ export default function ScheduleGridEditor({
   })
 
   const headStyle = (clickable: boolean, accent: boolean) => ({
-    fontSize: accent ? 10 : 9,
+    fontSize: grid.fSlot,
     lineHeight: 1.25,
     textAlign: 'center' as const,
     color: clickable && accent ? '#ff6b35' : '#9ca3af',
@@ -342,6 +324,7 @@ export default function ScheduleGridEditor({
         {granular ? (
           /* ── 精确到小时：日期 × 6 时段矩阵。能铺满就铺满，铺不下可横向拖动 ── */
           <View
+            ref={boxRef}
             style={{
               display: 'block',
               width: '100%',
@@ -354,7 +337,7 @@ export default function ScheduleGridEditor({
             }}
           >
             <View style={innerStyle}>
-              <View style={{ display: 'grid', gridTemplateColumns: TEMPLATE, gap: GAP, touchAction: gridTouch }}>
+              <View style={{ display: 'grid', gridTemplateColumns: TEMPLATE, gap: grid.gap, touchAction: gridTouch }}>
                 {/* 表头 */}
                 <View />
                 <View onClick={() => !readOnly && fillDayColumn()} style={headStyle(!readOnly, false)}>
@@ -364,8 +347,8 @@ export default function ScheduleGridEditor({
                   const [st, en] = splitSlot(s)
                   return (
                     <View key={s} onClick={() => !readOnly && fillSlotColumn(s)} style={headStyle(!readOnly, true)}>
-                      <Text style={{ fontSize: 9, lineHeight: 1.25 }}>{st}</Text>
-                      <Text style={{ fontSize: 9, lineHeight: 1.25 }}>{en}</Text>
+                      <Text style={{ fontSize: grid.fSlot, lineHeight: 1.25 }}>{st}</Text>
+                      <Text style={{ fontSize: grid.fSlot, lineHeight: 1.25 }}>{en}</Text>
                     </View>
                   )
                 })}
@@ -394,7 +377,7 @@ export default function ScheduleGridEditor({
                       >
                         <Text
                           style={{
-                            fontSize: 10,
+                            fontSize: grid.fDate,
                             fontWeight: isToday ? 700 : 600,
                             color: isToday ? '#ff6b35' : '#374151',
                             lineHeight: 1.2,
@@ -402,7 +385,9 @@ export default function ScheduleGridEditor({
                         >
                           {shortDate(d)}
                         </Text>
-                        <Text style={{ fontSize: 9, color: '#9ca3af', lineHeight: 1.2 }}>{weekdayLabel(d)}</Text>
+                        <Text style={{ fontSize: grid.fWeekday, color: '#9ca3af', lineHeight: 1.2 }}>
+                          {weekdayLabel(d)}
+                        </Text>
                       </View>
 
                       {/* 全天格 */}
@@ -469,8 +454,8 @@ export default function ScheduleGridEditor({
         )}
       </View>
 
-      {/* 窄屏提示：横向可拖动 */}
-      {granular && (
+      {/* 窄屏提示：横向可拖动（PC 端已铺满，不显示，免得误导） */}
+      {granular && !isWide && (
         <Text style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#c4c4c4' }}>
           表格可左右拖动查看看不到的时段
         </Text>

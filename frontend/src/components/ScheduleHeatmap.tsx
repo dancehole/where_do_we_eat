@@ -1,18 +1,11 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment } from 'react'
 import { View, Text } from '@tarojs/components'
 import {
   BUCKET_COLORS, BUCKET_LABELS, formatDateLabel, todayStr, recommendDay, runnerUpDays, DayRank,
   shortDate, weekdayLabel, splitSlot,
 } from '../utils/schedule'
+import { useGridMetrics, GRID_PAD } from '../utils/scheduleLayout'
 import ScheduleMonthGrid from './ScheduleMonthGrid'
-
-/* 与 ScheduleGridEditor 保持同一套尺寸（手机自适应铺满；PC 固定列宽居中） */
-const LABEL_W = 46
-const CELL_MIN = 34
-const CELL_W_PC = 46
-const GAP = 4
-const MIN_W_BASE = LABEL_W + 7 * CELL_MIN + 7 * GAP + 16
-const WIDE_BP = 600
 
 interface Props {
   merge: any
@@ -25,32 +18,27 @@ function bucketTextColor(bucket: string): string {
 }
 
 export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
-  if (!merge) return null
-  const days: string[] = merge.days || []
-  const slots: string[] = merge.slots || []
-  const granular = !!merge.granular_hours
-  const cells = merge.cells || {}
+  const days: string[] = (merge && merge.days) || []
+  const slots: string[] = (merge && merge.slots) || []
+  const granular = !!(merge && merge.granular_hours)
+  const cells = (merge && merge.cells) || {}
   const today = todayStr()
 
-  /** 宽屏判定：与编辑器一致（≥600 视为 PC，固定列宽居中；否则手机自适应铺满） */
-  const [isWide, setIsWide] = useState(() => {
-    if (process.env.TARO_ENV !== 'h5') return false
-    if (typeof window === 'undefined') return false
-    return window.innerWidth >= WIDE_BP
-  })
-  useEffect(() => {
-    if (process.env.TARO_ENV !== 'h5' || typeof window === 'undefined') return
-    const onResize = () => setIsWide(window.innerWidth >= WIDE_BP)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
+  // ⚠️ 尺寸 hook 必须在 `if (!merge) return null` 之前调用，否则 hooks 顺序会变。
   const heatCols = slots.length + 1
-  const TEMPLATE = isWide
-    ? `${LABEL_W}px repeat(${heatCols}, ${CELL_W_PC}px)`
-    : `${LABEL_W}px repeat(${heatCols}, minmax(${CELL_MIN}px, 1fr))`
-  const innerStyle = isWide
-    ? { display: 'block', padding: 8, width: 'fit-content', margin: '0 auto', boxSizing: 'border-box' as const }
-    : { display: 'block', padding: 8, minWidth: MIN_W_BASE, boxSizing: 'border-box' as const }
+  const { boxRef, grid } = useGridMetrics(heatCols, granular)
+
+  if (!merge) return null
+
+  /** 网格列模板：手机自适应铺满 + 塞不下横向拖；PC 用 1fr 铺满父容器 */
+  const TEMPLATE = grid.template
+  /** 网格内芯：PC 宽度 100%（上限 CONTENT_MAX_W，超宽屏才居中）；手机给 minWidth 保证可横滚 */
+  const innerStyle = grid.isWide
+    ? {
+        display: 'block', padding: GRID_PAD, width: '100%', maxWidth: grid.contentMaxW,
+        margin: '0 auto', boxSizing: 'border-box' as const,
+      }
+    : { display: 'block', padding: GRID_PAD, minWidth: grid.minWidth, boxSizing: 'border-box' as const }
 
   // 推荐日：只统计「有人作答」的日期；精确到小时时若「全天」列无人作答则按时段票数兜底。
   // 旧版算法用 `score = yes*2 - no`、初值 -1，导致无人作答的日期（分数 0）胜出，
@@ -115,6 +103,7 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
       {granular ? (
         /* ── 精确到小时：日期 × 6 时段矩阵（能铺满就铺满，塞不下可横向拖动） ── */
         <View
+          ref={boxRef}
           style={{
             display: 'block', width: '100%', boxSizing: 'border-box',
             border: '1px solid rgba(0,0,0,0.06)', borderRadius: 10,
@@ -126,14 +115,14 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
               style={{
                 display: 'grid',
                 gridTemplateColumns: TEMPLATE,
-                gap: GAP,
+                gap: grid.gap,
               }}
             >
               {/* 表头 */}
               <View />
               <View
                 style={{
-                  fontSize: 10, textAlign: 'center', color: '#9ca3af',
+                  fontSize: grid.fSlot, textAlign: 'center', color: '#9ca3af',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
               >
@@ -149,8 +138,8 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
                       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                     }}
                   >
-                    <Text style={{ fontSize: 9, lineHeight: 1.25 }}>{st}</Text>
-                    <Text style={{ fontSize: 9, lineHeight: 1.25 }}>{en}</Text>
+                    <Text style={{ fontSize: grid.fSlot, lineHeight: 1.25 }}>{st}</Text>
+                    <Text style={{ fontSize: grid.fSlot, lineHeight: 1.25 }}>{en}</Text>
                   </View>
                 )
               })}
@@ -170,28 +159,30 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
                     >
                       <Text
                         style={{
-                          fontSize: 10, fontWeight: isToday ? 700 : 600,
+                          fontSize: grid.fDate, fontWeight: isToday ? 700 : 600,
                           color: isToday ? '#ff6b35' : '#374151', lineHeight: 1.2,
                         }}
                       >
                         {shortDate(d)}
                         {isBest ? '★' : ''}
                       </Text>
-                      <Text style={{ fontSize: 9, color: '#9ca3af', lineHeight: 1.2 }}>{weekdayLabel(d)}</Text>
+                      <Text style={{ fontSize: grid.fWeekday, color: '#9ca3af', lineHeight: 1.2 }}>
+                        {weekdayLabel(d)}
+                      </Text>
                     </View>
 
                     {/* 全天格 */}
                     <View
                       onClick={() => onCellClick && onCellClick(d, null)}
                       style={{
-                        height: 34, borderRadius: 7,
+                        height: grid.cellH, borderRadius: grid.radius,
                         background: BUCKET_COLORS[dc],
                         border: isToday ? '2px solid #ff6b35' : isBest ? '2px solid #ff6b35' : '1px solid rgba(0,0,0,0.08)',
                         boxShadow: isBest && !isToday ? '0 0 0 2px rgba(255,107,53,0.55)' : 'none',
                         cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
                     >
-                      <Text style={{ fontSize: 10, color: bucketTextColor(dc) }}>{dayCounts(d).yes}</Text>
+                      <Text style={{ fontSize: grid.fCount, color: bucketTextColor(dc) }}>{dayCounts(d).yes}</Text>
                     </View>
 
                     {/* 时段格 */}
@@ -203,13 +194,13 @@ export default function ScheduleHeatmap({ merge, onCellClick }: Props) {
                           key={`${d}-${s}`}
                           onClick={() => onCellClick && onCellClick(d, s)}
                           style={{
-                            height: 34, borderRadius: 7,
+                            height: grid.cellH, borderRadius: grid.radius,
                             background: BUCKET_COLORS[sc],
                             border: '1px solid rgba(0,0,0,0.08)',
                             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                           }}
                         >
-                          <Text style={{ fontSize: 10, color: bucketTextColor(sc) }}>{yes}</Text>
+                          <Text style={{ fontSize: grid.fCount, color: bucketTextColor(sc) }}>{yes}</Text>
                         </View>
                       )
                     })}
