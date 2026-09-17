@@ -1,5 +1,5 @@
 {
-  "miniprogramRoot": "dist/",
+  "miniprogramRoot": "dist-weapp/",
   "projectname": "where-do-we-go-to-eat",
   "description": "我们去哪儿吃饭",
   "appid": "wx61853685ba268c68",

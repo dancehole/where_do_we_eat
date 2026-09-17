@@ -38,7 +38,10 @@ export default defineConfig(async (merge, { command, mode }) => {
     designWidth: 750,
     deviceRatio: { 640: 2.34 / 2.34, 750: 1, 828: 1.81 / 1 },
     sourceRoot: 'src',
-    outputRoot: 'dist',
+    // 小程序与 H5 产物都默认叫 dist，会互相覆盖。weapp 构建时传 TARO_OUTPUT=dist-weapp
+    // 直接输出到 dist-weapp/，避免与 H5 的 dist/ 冲突；root project.config.json 的
+    // miniprogramRoot 指向 dist-weapp/。H5 构建保持默认 dist/（部署到服务器）。
+    outputRoot: process.env.TARO_OUTPUT || 'dist',
     plugins: [],
     defineConstants: {
       'process.env.AMAP_JS_KEY': JSON.stringify(process.env.AMAP_JS_KEY || ''),
