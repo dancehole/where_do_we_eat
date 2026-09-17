@@ -1,14 +1,13 @@
 import { View, Text, Button, Input, Picker, Switch } from '@tarojs/components'
 import Taro from '@tarojs/taro'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../../services/api'
 import { useStore } from '../../store'
 import PageContainer from '../../components/PageContainer'
 import Section from '../../components/Section'
 import Icon from '../../components/Icon'
 import MapView from '../../components/MapView'
-import MapPicker from '../../components/MapPicker'
-import { amapLocate, amapGeocode, getLocateEnv, weappReverseGeocode } from '../../utils/amap'
+import { amapLocate, amapGeocode, getLocateEnv, weappReverseGeocode, ipLocateCenter } from '../../utils/amap'
 import { joinKey } from '../../components/JoinMeetup'
 import { useResponsive, tokens } from '../../hooks/useResponsive'
 import { fmtDate, todayStr, scheduleJoinKey } from '../../utils/schedule'
@@ -31,16 +30,34 @@ export default function MeetupCreate() {
   const [locating, setLocating] = useState(false)
   /** 定位诊断提示（降级原因 / 失败原因），直接展示在页面上，便于排查 */
   const [locHint, setLocHint] = useState('')
+  /**
+   * 地图兜底中心：定位失败/未授权时地图也必须展示（用户直接点图选点）。
+   * 优先级：上次用过的位置（本地缓存）→ 服务端 IP 城市级定位 → 默认中心（仅最后兜底）。
+   */
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null)
+  useEffect(() => {
+    try {
+      const last = Taro.getStorageSync('wte_last_loc')
+      if (last && last.lat && last.lng) {
+        setMapCenter({ lat: last.lat, lng: last.lng })
+        return
+      }
+    } catch {
+      /* ignore */
+    }
+    ipLocateCenter()
+      .then((p) => setMapCenter((c) => c || { lat: p.lat, lng: p.lng }))
+      .catch(() => setMapCenter((c) => c || { lat: 39.90923, lng: 116.397428 }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // 手动选择位置
+  // 手动选择位置（地图本身已可直接点选；这里只放搜索 / 手动输入辅助）
   const [manualOpen, setManualOpen] = useState(false)
   const [keyword, setKeyword] = useState('')
   const [results, setResults] = useState<{ lat: number; lng: number; addr: string }[]>([])
   const [searching, setSearching] = useState(false)
   const [manualLat, setManualLat] = useState('')
   const [manualLng, setManualLng] = useState('')
-  /** 地图选点时的「大概位置」中心（自动定位/搜索得到的城市级坐标），只用于让地图初始落在对的地方 */
-  const [pickCenter, setPickCenter] = useState<{ lat: number; lng: number } | null>(null)
   /** 「其他方式」（手动输入经纬度）是否展开——次选，默认折叠 */
   const [otherOpen, setOtherOpen] = useState(false)
 
@@ -69,14 +86,8 @@ export default function MeetupCreate() {
     }
   }
 
-  // 打开手动选择时，若还没有中心点，就用已定位到的大概位置作为地图中心
-  const toggleManual = () => {
-    setManualOpen((v) => {
-      const next = !v
-      if (next) setPickCenter((c) => c || loc)
-      return next
-    })
-  }
+  // 展开 / 收起「搜索地点 / 手动输入」辅助区（地图本身已可直接点选）
+  const toggleManual = () => setManualOpen((v) => !v)
 
   // ⚠️ 必须用构建期常量判断：Taro 在 H5 下 getEnv() 返回 'WEB'，写 'h5' 会恒为 false，
   // 导致 H5 端不走 amapLocate()（四级兜底），而去调 Taro.getLocation 直接失败。
@@ -84,6 +95,15 @@ export default function MeetupCreate() {
   const { mode } = useResponsive()
   const t = tokens(mode)
   const isDesktop = mode === 'desktop'
+
+  /** 记住本次位置，下次进入页面直接作为地图中心（免重复定位） */
+  const saveLast = (lat: number, lng: number) => {
+    try {
+      Taro.setStorageSync('wte_last_loc', { lat, lng })
+    } catch {
+      /* ignore */
+    }
+  }
 
   // 自动获取位置
   const getLocation = async () => {
@@ -93,14 +113,13 @@ export default function MeetupCreate() {
       if (isH5) {
         const p = await amapLocate()
         setLoc({ lat: p.lat, lng: p.lng })
+        saveLast(p.lat, p.lng)
         setAddr(p.addr || `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`)
-        // 让后续打开的「地图选点」落在这次定位到的大概位置
-        setPickCenter({ lat: p.lat, lng: p.lng })
         if (!p.precise) {
           const env = getLocateEnv()
           setLocHint(
             env.secure
-              ? '已使用网络定位（城市级，非精确）。想精确到具体地点请点「手动选择位置」。'
+              ? '已使用网络定位（城市级，非精确）。想精确到具体地点请直接点地图上的位置。'
               : `当前是非安全上下文（${env.protocol}//${env.host}），浏览器精确定位被禁用，已改用网络定位（城市级）。改用 https 访问可启用精确定位。`
           )
         }
@@ -112,9 +131,13 @@ export default function MeetupCreate() {
       const a = await weappReverseGeocode(res.latitude, res.longitude).catch(() => '')
       setAddr(a || `${res.latitude.toFixed(4)}, ${res.longitude.toFixed(4)}`)
     } catch (e: any) {
-      Taro.showToast({ title: '自动定位失败，请看下方原因', icon: 'none' })
-      setLocHint('自动定位失败：' + (e?.message || '未知原因') + '（可点「手动选择位置」）')
-      setManualOpen(true)
+      // ⚠️ 小程序端错误在 errMsg（e.message 常为空，之前显示「未知原因」就是这个原因）
+      const raw = String(e?.errMsg || e?.message || '未知原因')
+      const hint = /auth|deny|permission|privacy/i.test(raw)
+        ? `${raw}。请在小程序「···」→ 设置里开启位置权限后重试`
+        : raw
+      Taro.showToast({ title: '自动定位失败，可直接点下方地图选点', icon: 'none', duration: 2500 })
+      setLocHint(`自动定位失败：${hint}`)
     } finally {
       setLocating(false)
     }
@@ -138,8 +161,6 @@ export default function MeetupCreate() {
   const pick = (p: { lat: number; lng: number; addr: string }) => {
     setLoc({ lat: p.lat, lng: p.lng })
     setAddr(p.addr)
-    // 地图移到搜索到的地点，用户可继续在图上微调
-    setPickCenter({ lat: p.lat, lng: p.lng })
     setLocHint('')
     setResults([])
     setKeyword('')
@@ -154,8 +175,8 @@ export default function MeetupCreate() {
       return
     }
     setLoc({ lat, lng })
+    saveLast(lat, lng)
     setAddr(`手动坐标: ${lat}, ${lng}`)
-    setPickCenter({ lat, lng })
     setLocHint('')
     Taro.showToast({ title: '已设置位置', icon: 'success' })
   }
@@ -183,8 +204,9 @@ export default function MeetupCreate() {
           })
           if (s.my_participant_id) Taro.setStorageSync(scheduleJoinKey(s.code), s.my_participant_id)
           scheduleCode = s.code
-        } catch {
-          Taro.showToast({ title: '排期创建失败', icon: 'none' })
+        } catch (e: any) {
+          const msg = String(e?.message || e?.errMsg || e)
+          Taro.showToast({ title: `排期创建失败：${msg.slice(0, 80)}`, icon: 'none', duration: 3000 })
           return
         }
       } else {
@@ -195,10 +217,18 @@ export default function MeetupCreate() {
         scheduleCode = schedCode
       }
     }
-    const m = await api.createMeetup({
-      nickname: '我', lat: loc.lat, lng: loc.lng,
-      schedule_code: scheduleCode,
-    })
+    let m: any
+    try {
+      m = await api.createMeetup({
+        nickname: '我', lat: loc.lat, lng: loc.lng,
+        schedule_code: scheduleCode,
+      })
+    } catch (e: any) {
+      // 失败必须带出原因（后端 detail / 网络错误信息），不能静默
+      const msg = String(e?.message || e?.errMsg || e)
+      Taro.showToast({ title: `发起失败：${msg.slice(0, 80)}`, icon: 'none', duration: 3000 })
+      return
+    }
     // 记录本人参与者 id：打开自己分享链接时识别为「已加入」，不会重复加入
     if (m.my_participant_id) Taro.setStorageSync(joinKey(m.code), m.my_participant_id)
     useStore.getState().setMeetupCode(m.code)
@@ -243,7 +273,7 @@ export default function MeetupCreate() {
               fontSize: 13,
             }}
           >
-            <Icon name='search' size={14} /> {manualOpen ? '收起手动选择' : '手动选择位置'}
+            <Icon name='search' size={14} /> {manualOpen ? '收起搜索' : '搜索 / 手动输入'}
           </Button>
         </View>
 
@@ -272,19 +302,9 @@ export default function MeetupCreate() {
       </Section>
 
       {manualOpen && (
-        <Section title='手动选择位置' icon='search'>
-          {/* 地图选点：以「大概位置」为中心，用户点选/拖动标记选具体位置 */}
-          <MapPicker
-            center={pickCenter}
-            onChange={(p) => {
-              setLoc({ lat: p.lat, lng: p.lng })
-              setAddr(p.addr)
-              setLocHint('')
-            }}
-          />
-
-          <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginTop: 10, marginBottom: 8 }}>
-            也可以搜索地点，地图会自动移到该处
+        <Section title='搜索地点 / 手动输入' icon='search'>
+          <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginBottom: 8 }}>
+            地图上的位置已经可以直接点选（点地图任意处或拖动标记即可选定精确位置）；这里也能按名称搜索，或手动输入坐标。
           </Text>
           <View style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Input
@@ -296,7 +316,8 @@ export default function MeetupCreate() {
                 background: '#fff',
                 border: '1px solid rgba(0,0,0,0.08)',
                 borderRadius: 10,
-                padding: '10px 12px',
+                padding: '0 12px',
+                height: 42,
                 fontSize: 14,
               }}
             />
@@ -555,38 +576,37 @@ export default function MeetupCreate() {
     </>
   )
 
-  // 桌面端右侧地图
-  const mapPanel = loc && (
-    <View
-      style={{
-        position: isDesktop ? 'sticky' : 'static',
-        top: isDesktop ? 20 : undefined,
-        alignSelf: isDesktop ? 'flex-start' : 'stretch',
-      }}
-    >
-      <Section title='地图预览' icon='pin' flush>
-        <MapView
-          center={loc}
-          markers={[{ lat: loc.lat, lng: loc.lng, title: '我' }]}
-        />
-      </Section>
-      {isDesktop && !loc && (
-        <Section>
-          <Text style={{ color: '#9ca3af', fontSize: 13 }}>先在上方获取位置，这里会显示地图</Text>
-        </Section>
-      )}
-    </View>
-  )
-
-  // 移动端/平板：地图在表单下方
-  const mobileMap = !isDesktop && loc && (
-    <Section title='地图预览' icon='pin' flush>
+  // 同一张地图：既是「预览」也是「选点器」。
+  // ⚠️ 即使定位失败/未授权也必须展示地图（用兜底中心），让用户直接点图选自己的位置——
+  // 之前无 loc 时只渲染「还没定位，地图无法显示」占位块，用户没法手动选点。
+  const effCenter = loc || mapCenter || { lat: 39.90923, lng: 116.397428 }
+  const mapArea = (
+    <Section title='地图预览（点选更精确）' icon='pin' flush>
       <MapView
-        center={loc}
-        markers={[{ lat: loc.lat, lng: loc.lng, title: '我' }]}
+        center={effCenter}
+        markers={loc ? [{ lat: loc.lat, lng: loc.lng, title: '我' }] : []}
+        onPick={(p) => {
+          setLoc({ lat: p.lat, lng: p.lng })
+          saveLast(p.lat, p.lng)
+          setAddr(p.addr)
+          setLocHint('')
+        }}
       />
+      {!loc && (
+        <Text style={{ display: 'block', marginTop: 8, fontSize: 12, color: '#9a6a00', lineHeight: 1.7, wordBreak: 'break-word' }}>
+          {locHint || '尚未定位：可直接点击地图选择你的位置，或点上方「获取我的位置」自动定位。'}
+        </Text>
+      )}
     </Section>
   )
+
+  // 桌面端：右侧地图（常驻，sticky 跟随滚动）
+  const mapPanel = isDesktop ? (
+    <View style={{ position: 'sticky', top: 20, alignSelf: 'flex-start' }}>{mapArea}</View>
+  ) : null
+
+  // 移动端 / 平板：地图在表单下方
+  const mobileMap = !isDesktop ? mapArea : null
 
   return (
     <PageContainer
@@ -623,7 +643,9 @@ const inputBox = {
   background: '#fff',
   border: '1px solid rgba(0,0,0,0.08)',
   borderRadius: 10,
-  padding: '10px 12px',
+  // ⚠️ 小程序原生 input 高度固定：只给横向 padding + 显式 height，避免 placeholder 被纵向裁切
+  padding: '0 12px',
+  height: 42,
   fontSize: 14,
   width: '100%',
 }

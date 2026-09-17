@@ -1,9 +1,9 @@
 import { View, Text, Button, Input, Image } from '@tarojs/components'
 import Taro from '@tarojs/taro'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, ReactNode } from 'react'
 import { api } from '../services/api'
 import Section from './Section'
-import Icon from './Icon'
+import Icon, { IconName } from './Icon'
 import MapPicker from './MapPicker'
 import { amapLocate, amapGeocode, getLocateEnv } from '../utils/amap'
 import {
@@ -23,6 +23,8 @@ interface Props {
   code: string
   /** 已加入的参与者 id（由父组件从 cookie 读取并下发，用于标记「你」与切换 UI） */
   joinedPid: string
+  /** 已加入时，本人已上报的位置（用于回显，避免显示「尚未上报」） */
+  initialLoc?: { lat: number; lng: number; addr?: string } | null
   /** 碰面是否已结束 */
   ended: boolean
   /** 加入/更新成功后刷新父页面数据 */
@@ -31,7 +33,7 @@ interface Props {
   onJoined: (pid: string) => void
 }
 
-export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined }: Props) {
+export default function JoinMeetup({ code, joinedPid, initialLoc, ended, onChange, onJoined }: Props) {
   const { mode } = useResponsive()
   const t = tokens(mode)
 
@@ -41,8 +43,10 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
   )
   const [avatar, setAvatar] = useState('')
   const [wechatId, setWechatId] = useState('')
-  const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(null)
-  const [addr, setAddr] = useState('')
+  const [loc, setLoc] = useState<{ lat: number; lng: number } | null>(
+    initialLoc ? { lat: initialLoc.lat, lng: initialLoc.lng } : null
+  )
+  const [addr, setAddr] = useState(initialLoc?.addr || '')
   const [precise, setPrecise] = useState(false)
   const [locating, setLocating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -77,13 +81,14 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
     })
   }
 
-  const locate = async () => {
+  const locate = async (): Promise<{ lat: number; lng: number; addr: string; precise: boolean } | null> => {
     setLocating(true)
     setHint('')
     try {
       const p = await amapLocate()
+      const addr = p.addr || `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`
       setLoc({ lat: p.lat, lng: p.lng })
-      setAddr(p.addr || `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`)
+      setAddr(addr)
       setPickCenter({ lat: p.lat, lng: p.lng })
       setPrecise(!!p.precise)
       if (!p.precise) {
@@ -94,9 +99,11 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
             : `当前是非安全上下文（${env.protocol}//${env.host}），浏览器精确定位被禁用，已改用网络定位（城市级）。想用浏览器精确定位请改用 https 访问（https://${env.host}），或点「手动选择」。`
         )
       }
+      return { lat: p.lat, lng: p.lng, addr, precise: !!p.precise }
     } catch (e: any) {
       setHint('自动定位失败：' + (e?.message || '未知原因') + '（可点「手动选择」输入地点）')
       setManualOpen(true)
+      return null
     } finally {
       setLocating(false)
     }
@@ -125,6 +132,8 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
     setResults([])
     setKw('')
     Taro.showToast({ title: '已选该地点', icon: 'success' })
+    // 已加入时，选点后直接落库，无需再点保存
+    if (joinedPid) saveMyInfo({ lat: p.lat, lng: p.lng })
   }
 
   const applyCoord = () => {
@@ -150,6 +159,8 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
       }
       if (prof.avatarUrl) setAvatar(prof.avatarUrl)
       Taro.showToast({ title: '已获取微信昵称/头像', icon: 'success' })
+      // 已加入时顺手把资料落库；未加入时等「加入碰面」时再提交
+      if (joinedPid) await saveMyInfo()
     } else {
       Taro.showToast({ title: '未获取到，可手动输入', icon: 'none' })
     }
@@ -185,28 +196,34 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
     }
   }
 
-  const doUpdate = async () => {
-    if (!loc) {
-      Taro.showToast({ title: '请先获取或选择位置', icon: 'none' })
-      return
-    }
+  /**
+   * 保存「我」的资料：昵称 + 头像必存；位置可选（传入 explicitLoc 或当前 loc）。
+   * 后端 update_participant 所有字段均可选，因此只改昵称也能单独提交。
+   */
+  const saveMyInfo = async (explicitLoc?: { lat: number; lng: number }) => {
+    const L = explicitLoc || loc
     const name = nick.trim() || (isWeapp() ? '微信用户' : getDefaultNickname())
     saveNickname(name)
     setSubmitting(true)
     try {
       await api.updateParticipant(code, joinedPid, {
         nickname: name,
-        lat: loc.lat,
-        lng: loc.lng,
         avatar: avatar || undefined,
+        ...(L ? { lat: L.lat, lng: L.lng } : {}),
       })
-      Taro.showToast({ title: '位置已更新', icon: 'success' })
+      Taro.showToast({ title: '资料已保存', icon: 'success' })
       onChange()
     } catch (e: any) {
-      Taro.showToast({ title: '更新失败', icon: 'none' })
+      Taro.showToast({ title: '保存失败：' + (e?.message || '未知原因'), icon: 'none' })
     } finally {
       setSubmitting(false)
     }
+  }
+
+  /** 重新定位并把新位置落库（已加入时刷新自己的位置用） */
+  const refreshMyLocation = async () => {
+    const p = await locate()
+    if (p) await saveMyInfo({ lat: p.lat, lng: p.lng })
   }
 
   // 已结束：仅展示状态
@@ -220,116 +237,104 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
     )
   }
 
-  // 已加入：展示「你」+ 更新位置
+  // 已加入：用折叠板块把「用户信息 / 我的位置」分组，避免按钮挤在一起
   if (joinedPid) {
     return (
       <Section title='你已加入' icon='user' tone='green'>
-        <View style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {/* 摘要：头像 + 昵称 +（你） */}
+        <View style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
           {avatar ? (
             <Image
               src={avatar}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 999,
-                border: '1px solid rgba(16,185,129,0.3)',
-                flexShrink: 0,
-              }}
+              style={{ width: 44, height: 44, borderRadius: 999, border: '1px solid rgba(16,185,129,0.3)', flexShrink: 0 }}
               mode='aspectFill'
             />
           ) : (
             <View
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 999,
-                background: 'rgba(16,185,129,0.15)',
-                color: '#059669',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
+              style={{ width: 44, height: 44, borderRadius: 999, background: 'rgba(16,185,129,0.15)', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}
             >
               {(nick || '匿名用户')?.[0] || '?'}
             </View>
           )}
-          <View
-            style={{
-              flex: 1,
-              minWidth: 0,
-              padding: '10px 12px',
-              background: '#fff',
-              borderRadius: 10,
-              border: '1px solid rgba(16,185,129,0.2)',
-            }}
-          >
-            <Text style={{ fontWeight: 600, color: '#059669' }}>昵称：{nick || '匿名用户'}</Text>
-            <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginTop: 2 }}>
-              {loc ? `位置：${addr}` : '尚未上报位置'}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ fontWeight: 600, fontSize: 15, color: '#059669' }}>
+              {nick || '匿名用户'}
+              <Text style={{ fontSize: 12, color: '#10b981' }}>（你）</Text>
             </Text>
           </View>
-          <Button
-            size='mini'
-            loading={locating || submitting}
-            onClick={locate}
-            style={{
-              background: 'rgba(16,185,129,0.1)',
-              color: '#059669',
-              border: '1px solid rgba(16,185,129,0.3)',
-              borderRadius: 999,
-              padding: '8px 14px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
-            <Icon name='target' size={14} color='#059669' /> 更新我的位置
-          </Button>
         </View>
-        {isWeapp() && (
-          <View style={{ marginTop: 10 }}>
+
+        {/* 用户信息：手动昵称（免登录）+ 微信昵称/头像 */}
+        <FoldPanel title='用户信息' icon='user' defaultOpen>
+          <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginBottom: 8 }}>
+            手动填写昵称即可参与（无需登录）；也可一键带入微信昵称/头像。
+          </Text>
+          <View style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {avatar && (
+              <Image
+                src={avatar}
+                style={{ width: 34, height: 34, borderRadius: 999, border: '1px solid rgba(0,0,0,0.08)', flexShrink: 0 }}
+                mode='aspectFill'
+              />
+            )}
+            <Input
+              placeholder='昵称（手动输入，免登录）'
+              value={nick}
+              onInput={(e) => setNick(e.detail.value)}
+              style={{ flex: '1 1 180px', background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, padding: '0 12px', height: 42, fontSize: 14 }}
+            />
+          </View>
+          <View style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            {isWeapp() && (
+              <Button
+                size='mini'
+                onClick={useWechat}
+                style={{ background: 'rgba(16,185,129,0.1)', color: '#059669', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 999, padding: '8px 14px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              >
+                <Icon name='user' size={14} color='#059669' /> 用微信昵称/头像
+              </Button>
+            )}
             <Button
               size='mini'
-              onClick={useWechat}
-              style={{
-                background: 'rgba(16,185,129,0.1)',
-                color: '#059669',
-                border: '1px solid rgba(16,185,129,0.3)',
-                borderRadius: 999,
-                padding: '6px 14px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
+              loading={submitting}
+              onClick={() => saveMyInfo()}
+              style={{ background: '#fff', color: '#059669', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 999, padding: '8px 14px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
             >
-              <Icon name='user' size={14} color='#059669' /> 用微信昵称/头像
+              保存资料
             </Button>
           </View>
-        )}
-        {hint ? (
-          <Text style={{ display: 'block', marginTop: 8, fontSize: 12, color: '#9a6a00' }}>{hint}</Text>
-        ) : null}
-        <View style={{ marginTop: 10 }}>
-          <Button
-            size='mini'
-            onClick={toggleManual}
-            style={{
-              background: '#fff',
-              color: '#6b7280',
-              border: '1px solid rgba(0,0,0,0.08)',
-              borderRadius: 999,
-              padding: '6px 14px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
+        </FoldPanel>
+
+        {/* 我的位置：查看/更新 + 手动选点 */}
+        <FoldPanel title='我的位置' icon='pin' defaultOpen>
+          <View
+            style={{ padding: 10, background: '#fff', borderRadius: 10, fontSize: 13, color: loc ? '#2b2b2b' : '#9ca3af', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}
           >
-            <Icon name='search' size={14} /> {manualOpen ? '收起' : '手动选择地点'}
-          </Button>
-        </View>
-        {manualOpen && renderManual()}
+            <Icon name='pin' size={14} color={loc ? '#ff6b35' : '#9ca3af'} />
+            <Text>当前位置：{loc ? addr : '尚未上报'}</Text>
+          </View>
+          <View style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Button
+              size='mini'
+              loading={locating || submitting}
+              onClick={refreshMyLocation}
+              style={{ background: 'rgba(16,185,129,0.1)', color: '#059669', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 999, padding: '8px 14px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              <Icon name='target' size={14} color='#059669' /> 更新我的位置
+            </Button>
+            <Button
+              size='mini'
+              onClick={toggleManual}
+              style={{ background: '#fff', color: '#6b7280', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 999, padding: '8px 14px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              <Icon name='search' size={14} /> {manualOpen ? '收起选点' : '手动选择地点'}
+            </Button>
+          </View>
+          {hint ? (
+            <Text style={{ display: 'block', marginTop: 8, fontSize: 12, color: '#9a6a00' }}>{hint}</Text>
+          ) : null}
+          {manualOpen && renderManual()}
+        </FoldPanel>
       </Section>
     )
   }
@@ -359,7 +364,8 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
             background: '#fff',
             border: '1px solid rgba(0,0,0,0.08)',
             borderRadius: 10,
-            padding: '10px 12px',
+            padding: '0 12px',
+            height: 42,
             fontSize: 14,
           }}
         />
@@ -607,4 +613,46 @@ export default function JoinMeetup({ code, joinedPid, ended, onChange, onJoined 
       </View>
     )
   }
+}
+
+/**
+ * 轻量折叠面板（用于「你已加入」内部把信息/位置分组），避免按钮挤在一起。
+ * 与 Section 不嵌套成重型卡片：只是一条可点击的标题栏 + 内容区。
+ */
+function FoldPanel({
+  title,
+  icon,
+  defaultOpen = true,
+  children,
+}: {
+  title: ReactNode
+  icon?: IconName
+  defaultOpen?: boolean
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <View style={{ marginTop: 12 }}>
+      <View
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: 'pointer',
+          padding: '8px 10px',
+          background: 'rgba(255,255,255,0.7)',
+          borderRadius: 8,
+          gap: 8,
+        }}
+      >
+        <View style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {icon && <Icon name={icon} size={15} color='#ff6b35' />}
+          <Text style={{ fontSize: 13, fontWeight: 600, color: '#2b2b2b' }}>{title}</Text>
+        </View>
+        <Icon name={open ? 'chevron_down' : 'chevron_right'} size={15} color='#9ca3af' />
+      </View>
+      {open && <View style={{ padding: '10px 2px 2px' }}>{children}</View>}
+    </View>
+  )
 }

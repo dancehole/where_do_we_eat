@@ -76,6 +76,10 @@ export default function MeetupDetail() {
       </PageContainer>
     )
 
+  // 本人在参与者列表里的记录（用于回显已上报的位置，并传给 JoinMeetup 初始值）
+  const myParticipant = m?.participants?.find((p: any) => p.id === myPid)
+  const myInitialLoc = myParticipant ? { lat: myParticipant.lat, lng: myParticipant.lng } : null
+
   // 地图图例：蓝=自己 / 绿=朋友 / 红=碰面中心
   const Legend = () => (
     <View style={{ display: 'flex', gap: 14, marginTop: 10, flexWrap: 'wrap' }}>
@@ -103,7 +107,7 @@ export default function MeetupDetail() {
 
   // 选择碰面规则 Section（持久化到后端，算法后续补充）
   const RuleSection = () => (
-    <Section title='选择碰面规则' icon='rule' tone='blue'>
+    <Section title='选择碰面规则' icon='rule' tone='blue' collapsible>
       <MeetupRulePicker
         code={code}
         value={m?.rule}
@@ -144,13 +148,17 @@ export default function MeetupDetail() {
       <JoinMeetup
         code={code}
         joinedPid={myPid}
+        initialLoc={myInitialLoc}
         ended={m.status === 'ended'}
         onChange={load}
         onJoined={(pid) => setMyPid(pid)}
       />
 
+      {/* 手动添加参与者：帮朋友报位置（昵称 + 地址） */}
+      <ManualAddParticipant code={code} ended={m.status === 'ended'} onChange={load} />
+
       {/* 分享碰面：浏览器复制链接；小程序用 open-type=share 触发微信转发（携带碰面码，好友点开即加入） */}
-      <Section title='分享碰面' icon='share' tone='green'>
+      <Section title='分享碰面' icon='share' tone='green' collapsible defaultOpen={false}>
         {isWeapp() ? (
           <View>
             <Text style={{ display: 'block', fontSize: 12, color: '#6b6b6b', marginBottom: 8 }}>
@@ -227,12 +235,9 @@ export default function MeetupDetail() {
         )}
       </Section>
 
-      {/* 手动添加参与者：帮朋友报位置（昵称 + 地址） */}
-      <ManualAddParticipant code={code} ended={m.status === 'ended'} onChange={load} />
-
       {/* 时间排期：创建时关联了排期则显示，可去填写 / 直接看合并结果 */}
       {m.schedule_code && (
-        <Section title='时间排期' icon='calendar' tone='green'>
+        <Section title='时间排期' icon='calendar' tone='green' collapsible>
           <View style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <Icon name='calendar' size={16} color='#059669' />
             <Text style={{ fontSize: 14, fontWeight: 600, color: '#2b2b2b' }}>
@@ -287,7 +292,7 @@ export default function MeetupDetail() {
         >
           {/* 左：参与者 */}
           <View>
-            <Section title={`参与者（${m.participants.length}）`} icon='users' tone='blue'>
+            <Section title={`参与者（${m.participants.length}）`} icon='users' tone='blue' collapsible>
               <View style={{ display: 'grid', gap: 10 }}>
                 {m.participants.map((p: any, idx: number) => (
                   <View
@@ -356,7 +361,7 @@ export default function MeetupDetail() {
           {/* 右：地图 + 中心 */}
           <View>
             <RuleSection />
-            <Section title='碰面位置' icon='target' tone='orange'>
+            <Section title='碰面位置' icon='target' tone='orange' collapsible>
               <Button
                 onClick={calcCenter}
                 style={{
@@ -439,7 +444,7 @@ export default function MeetupDetail() {
       ) : (
         // 移动/平板：单列
         <View>
-          <Section title={`参与者（${m.participants.length}）`} icon='users' tone='blue'>
+          <Section title={`参与者（${m.participants.length}）`} icon='users' tone='blue' collapsible>
             <View style={{ display: 'grid', gap: 8 }}>
               {m.participants.map((p: any) => (
                 <View
@@ -501,7 +506,7 @@ export default function MeetupDetail() {
 
           <RuleSection />
 
-          <Section title='碰面位置' icon='target' tone='orange'>
+          <Section title='碰面位置' icon='target' tone='orange' collapsible>
             <Button
               onClick={calcCenter}
               style={{

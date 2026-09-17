@@ -262,14 +262,14 @@ export default function NearAddressPicker({ defaultCenter, value, onChange, defa
               type='digit'
               value={manualLat}
               onInput={(e) => setManualLat(e.detail.value)}
-              style={{ flex: 1, background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, padding: '10px 12px', fontSize: 14 }}
+              style={{ flex: 1, background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, padding: '0 12px', height: 42, fontSize: 14 }}
             />
             <Input
               placeholder='经度 lng'
               type='digit'
               value={manualLng}
               onInput={(e) => setManualLng(e.detail.value)}
-              style={{ flex: 1, background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, padding: '10px 12px', fontSize: 14 }}
+              style={{ flex: 1, background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, padding: '0 12px', height: 42, fontSize: 14 }}
             />
             <Button
               size='mini'

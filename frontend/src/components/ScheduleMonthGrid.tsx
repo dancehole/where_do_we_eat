@@ -11,6 +11,8 @@ interface Props {
   textOf: (date: string) => string
   /** 右下角小字（如热度图的「2/3」），返回 null 则不显示 */
   badgeOf?: (date: string) => string | null
+  /** 高亮某天（如合并结果页的推荐日）；不传则不高亮 */
+  highlightOf?: (date: string) => boolean
   /** 可交互（编辑态）；只读态仅触发 onClick */
   editable?: boolean
   onDown?: (date: string, e?: any) => void

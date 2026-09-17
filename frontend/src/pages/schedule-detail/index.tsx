@@ -265,7 +265,7 @@ export default function ScheduleDetail() {
               placeholder={isWeapp() ? '昵称（点「用微信昵称/头像」）' : '昵称（默认匿名用户xx）'}
               value={nick}
               onInput={(e) => setNick(e.detail.value)}
-              style={{ flex: '1 1 180px', background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, padding: '10px 12px', fontSize: 14 }}
+              style={{ flex: '1 1 180px', background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10, padding: '0 12px', height: 42, fontSize: 14 }}
             />
             {isWeapp() && (
               <Button size='mini' onClick={useWechat} style={btnGreenOutline}>用微信</Button>

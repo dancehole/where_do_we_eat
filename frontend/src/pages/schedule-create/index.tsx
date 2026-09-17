@@ -62,7 +62,9 @@ export default function ScheduleCreate() {
       Taro.showToast({ title: '已创建，去邀请吧', icon: 'success' })
       Taro.redirectTo({ url: `/pages/schedule-detail/index?code=${m.code}` })
     } catch (e: any) {
-      Taro.showToast({ title: '创建失败', icon: 'none' })
+      // 失败必须带出原因（后端 detail / 网络错误信息），不能只说"创建失败"
+      const reason = shortenErr(e?.message || e?.errMsg || String(e))
+      Taro.showToast({ title: `创建失败：${reason}`, icon: 'none', duration: 3000 })
     } finally {
       setSubmitting(false)
     }
@@ -156,9 +158,17 @@ export default function ScheduleCreate() {
   )
 }
 
+/** 错误信息裁剪：toast 两行内能展示完 */
+function shortenErr(msg: string, max = 80): string {
+  const s = String(msg || '').replace(/\s+/g, ' ').trim()
+  return s.length > max ? s.slice(0, max) + '…' : s
+}
+
 const inputStyle = {
   background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10,
-  padding: '10px 12px', fontSize: 14, width: '100%',
+  // ⚠️ 小程序原生 input 高度固定：只给横向 padding + 显式 height。
+  // 纵向 padding（如 '10px 12px'）会把 placeholder 挤出可视区导致文字被裁切（输入值反而正常）。
+  padding: '0 12px', height: 42, fontSize: 14, width: '100%',
 }
 const pickerBox = {
   marginTop: 4, background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10,

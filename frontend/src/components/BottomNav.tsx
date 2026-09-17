@@ -16,9 +16,11 @@ export const TABS: { key: TabKey; label: string; icon: IconName; path: string }[
 ]
 
 export default function BottomNav({ active }: { active?: TabKey }) {
-  const { mode } = useResponsive()
+  const { mode, isH5 } = useResponsive()
   const isLarge = mode !== 'mobile'
   const navH = isLarge ? 64 : 58
+  // H5 端底部有备案号固定栏（高 26），导航栏需抬高避免遮挡
+  const navBottom = isH5 ? 26 : 0
 
   const go = (key: TabKey, path: string) => {
     if (key === active) return
@@ -42,7 +44,7 @@ export default function BottomNav({ active }: { active?: TabKey }) {
         position: 'fixed',
         left: 0,
         right: 0,
-        bottom: 0,
+        bottom: navBottom,
         height: navH,
         zIndex: 50,
         display: 'flex',

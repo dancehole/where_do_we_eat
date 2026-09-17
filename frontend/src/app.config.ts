@@ -22,4 +22,13 @@ export default {
     navigationBarTextStyle: 'black',
     backgroundColor: '#f6f6f6',
   },
+  // ⚠️ 必须声明：基础库 2.21.3+ 起未在 requiredPrivateInfos 声明 getLocation，
+  // wx.getLocation 会直接 fail（报「api scope is not declared in the privacy agreement」之类），
+  // 且 Taro 抛出的错误只有 errMsg 没有 message → 页面只显示「未知原因」。
+  permission: {
+    'scope.userLocation': {
+      desc: '用于获取你的位置，计算碰面中心并推荐附近餐厅',
+    },
+  },
+  requiredPrivateInfos: ['getLocation'],
 }

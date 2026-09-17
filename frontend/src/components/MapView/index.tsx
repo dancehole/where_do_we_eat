@@ -1,7 +1,7 @@
 import { View, Text, Map } from '@tarojs/components'
 import { useEffect, useRef, useState } from 'react'
 import { AMAP_JS_KEY } from '../../config'
-import { loadAMap, getAMapLastError } from '../../utils/amap'
+import { loadAMap, getAMapLastError, weappReverseGeocode } from '../../utils/amap'
 import { reportDebug } from '../../utils/debug'
 import { useResponsive } from '../../hooks/useResponsive'
 
@@ -13,6 +13,13 @@ export interface MapMarker {
   type?: 'self' | 'friend' | 'center' | 'poi'
 }
 
+/** 选点结果：坐标 + 反查地址 */
+export interface PickedPoint {
+  lat: number
+  lng: number
+  addr: string
+}
+
 interface Props {
   center: { lat: number; lng: number }
   markers?: MapMarker[]
@@ -20,6 +27,8 @@ interface Props {
   height?: number
   /** 点击某个标记时回调（传入 markers 数组中的下标），用于美食地图跳转到对应餐厅卡片 */
   onMarkerClick?: (index: number) => void
+  /** 选点模式：点击 / 拖动地图即选中位置（返回反查地址）。用于「碰面」发起页把预览地图同时当选择器 */
+  onPick?: (p: PickedPoint) => void
 }
 
 // 构建期常量：H5 构建时 Taro 会把 process.env.TARO_ENV 替换为字符串字面量，
@@ -93,8 +102,11 @@ let seq = 0
  *   ① 等容器尺寸 > 0 再初始化（flex/grid 布局下首帧可能为 0，AMap 会渲染空白）
  *   ② ResizeObserver 监听容器尺寸变化并调用 map.resize()（侧栏/折叠展开后不白屏）
  *   ③ 初始化失败时把原因显示在容器上并上报后端 /api/debug/log，绝不静默空白
+ *
+ * 选点模式（onPick 非空）：把「预览图」同时当「选择器」——点击/拖动地图即选中位置，
+ * 用于「碰面」发起页，避免再额外弹出一个地图选点器（从两张图减到一张图）。
  */
-export default function MapView({ center, markers = [], height, onMarkerClick }: Props) {
+export default function MapView({ center, markers = [], height, onMarkerClick, onPick }: Props) {
   const { mode } = useResponsive()
   const h = height ?? defaultHeight(mode)
   const ref = useRef<any>(null)
@@ -104,6 +116,9 @@ export default function MapView({ center, markers = [], height, onMarkerClick }:
   // 用 ref 持有最新回调，避免地图初始化时的闭包拿到旧值
   const onMarkerClickRef = useRef(onMarkerClick)
   onMarkerClickRef.current = onMarkerClick
+  const onPickRef = useRef(onPick)
+  onPickRef.current = onPick
+  const geocoderRef = useRef<any>(null)
 
   // 把对象/数组依赖序列化成字符串，避免每次父组件 render 都触发重建
   const centerKey = center ? `${center.lat},${center.lng}` : ''
@@ -148,6 +163,30 @@ export default function MapView({ center, markers = [], height, onMarkerClick }:
       return host
     }
 
+    // 选点模式：反查地址后回调（高德 Geocoder 未就绪时回退为坐标字符串）
+    const reverseGeocodePoint = (lat: number, lng: number) => {
+      const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+      const done = (addr: string) => {
+        if (onPickRef.current) onPickRef.current({ lat, lng, addr })
+      }
+      const g: any = geocoderRef.current
+      if (g && typeof g.getAddress === 'function') {
+        try {
+          g.getAddress([lng, lat], (status: string, result: any) => {
+            const a =
+              status === 'complete' && result?.regeocode?.formattedAddress
+                ? result.regeocode.formattedAddress
+                : fallback
+            done(a)
+          })
+        } catch {
+          done(fallback)
+        }
+      } else {
+        done(fallback)
+      }
+    }
+
     const init = () => {
       if (cancelled) return
       const wrapper = getEl()
@@ -186,6 +225,27 @@ export default function MapView({ center, markers = [], height, onMarkerClick }:
                 })
                 ro.observe(host)
               }
+              // 选点模式：加载 Geocoder，点击 / 拖动地图即选中位置
+              // （碰面发起页把预览图同时当选择器，省掉额外弹出的选点地图）
+              if (onPickRef.current) {
+                try {
+                  AMap.plugin(['AMap.Geocoder'], () => {
+                    try {
+                      geocoderRef.current = new AMap.Geocoder({})
+                    } catch {
+                      /* ignore */
+                    }
+                  })
+                } catch {
+                  /* ignore */
+                }
+                mapRef.current.on('click', (e: any) => {
+                  const lat = Number(e?.lnglat?.lat)
+                  const lng = Number(e?.lnglat?.lng)
+                  if (!lat || !lng) return
+                  reverseGeocodePoint(lat, lng)
+                })
+              }
             }
             const map = mapRef.current
             if (typeof map.clearMap === 'function') map.clearMap()
@@ -201,6 +261,8 @@ export default function MapView({ center, markers = [], height, onMarkerClick }:
                 `<div class="wte-label">${escapeHtml(label)}</div>` +
                 `<div class="wte-pin"></div>` +
                 `</div>`
+              // 选点模式下，让第 0 个标记（通常是「我」）可拖动微调
+              const pickable = !!(onPickRef.current && i === 0)
               const mk = new AMap.Marker({
                 position: [m.lng, m.lat],
                 content: html,
@@ -208,19 +270,33 @@ export default function MapView({ center, markers = [], height, onMarkerClick }:
                 title: label,
                 map,
                 zIndex: type === 'center' ? 200 : type === 'self' ? 120 : 100,
+                draggable: pickable,
               })
               // 点击标记 → 回调对应餐厅下标（美食地图跳转到卡片）
               if (mk && typeof mk.on === 'function') {
                 mk.on('click', () => {
                   if (onMarkerClickRef.current) onMarkerClickRef.current(i)
                 })
+                if (pickable) {
+                  mk.on('dragend', () => {
+                    const pos = mk.getPosition()
+                    const lat = Number(pos?.lat)
+                    const lng = Number(pos?.lng)
+                    if (lat && lng) reverseGeocodePoint(lat, lng)
+                  })
+                }
               }
             })
-            const all = [{ lng: center.lng, lat: center.lat }, ...markers]
-            if (all.length >= 2 && typeof map.setFitView === 'function') {
-              map.setFitView()
-            } else if (typeof map.setCenter === 'function') {
-              map.setCenter([center.lng, center.lat])
+            if (onPickRef.current) {
+              // 选点模式：保持稳定缩放，避免每次点选都被 fitView 缩放跳动
+              if (typeof map.setCenter === 'function') map.setCenter([center.lng, center.lat])
+            } else {
+              const all = [{ lng: center.lng, lat: center.lat }, ...markers]
+              if (all.length >= 2 && typeof map.setFitView === 'function') {
+                map.setFitView()
+              } else if (typeof map.setCenter === 'function') {
+                map.setCenter([center.lng, center.lat])
+              }
             }
             setErr('')
             reportDebug(
@@ -296,6 +372,25 @@ export default function MapView({ center, markers = [], height, onMarkerClick }:
             <Text>地图加载失败：{err}</Text>
           </View>
         )}
+        {onPick && !err && (
+          <View
+            style={{
+              position: 'absolute',
+              left: 8,
+              bottom: 8,
+              zIndex: 2,
+              background: 'rgba(255,107,53,0.92)',
+              color: '#fff',
+              fontSize: 12,
+              padding: '4px 10px',
+              borderRadius: 999,
+              boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+              pointerEvents: 'none',
+            }}
+          >
+            <Text>点击地图选点 · 可拖动标记微调</Text>
+          </View>
+        )}
       </View>
     )
   }
@@ -326,16 +421,31 @@ export default function MapView({ center, markers = [], height, onMarkerClick }:
     }
   })
   return (
-    <Map
-      longitude={center.lng}
-      latitude={center.lat}
-      scale={12}
-      markers={wxMarkers}
-      style={{ width: '100%', height: h, marginTop: 12 }}
-      onMarkerTap={(e: any) => {
-        const id = e?.detail?.markerId
-        if (typeof id === 'number' && onMarkerClickRef.current) onMarkerClickRef.current(id)
-      }}
-    />
+    <View>
+      <Map
+        longitude={center.lng}
+        latitude={center.lat}
+        scale={12}
+        markers={wxMarkers}
+        style={{ width: '100%', height: h, marginTop: 12 }}
+        onMarkerTap={(e: any) => {
+          const id = e?.detail?.markerId
+          if (typeof id === 'number' && onMarkerClickRef.current) onMarkerClickRef.current(id)
+        }}
+        onTap={async (e: any) => {
+          if (!onPickRef.current) return
+          const lat = Number(e?.detail?.latitude)
+          const lng = Number(e?.detail?.longitude)
+          if (!lat || !lng) return
+          const a = await weappReverseGeocode(lat, lng)
+          onPickRef.current({ lat, lng, addr: a })
+        }}
+      />
+      {onPick && (
+        <Text style={{ display: 'block', marginTop: 6, fontSize: 12, color: '#6b6b6b' }}>
+          点击地图任意位置选点（小程序地图暂不支持拖动标记）
+        </Text>
+      )}
+    </View>
   )
 }

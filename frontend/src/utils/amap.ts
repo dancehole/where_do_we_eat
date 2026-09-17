@@ -237,6 +237,13 @@ function backendIpLocate(): Promise<GeoPoint> {
     })
 }
 
+// 地图兜底中心点（免授权、跨端可用）：走服务端 IP 定位（城市级）。
+// 用途：定位失败/未授权时地图依然要展示，给 <Map>/<AMap> 一个合理的初始中心，
+// 用户可直接在图上点选自己的位置。失败时抛错，调用方落到默认中心。
+export function ipLocateCenter(): Promise<GeoPoint> {
+  return backendIpLocate()
+}
+
 // 公共 CORS IP 定位兜底（城市级，WGS-84）：浏览器直连公开 HTTPS IP 服务。
 // 返回的 WGS-84 会转成高德 GCJ-02 再使用，避免在高德地图上偏移。
 function publicIpLocate(): Promise<GeoPoint> {

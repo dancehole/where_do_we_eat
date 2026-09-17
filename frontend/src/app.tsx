@@ -2,6 +2,7 @@ import { PropsWithChildren } from 'react'
 import { useLaunch } from '@tarojs/taro'
 import { reportDebug } from './utils/debug'
 import { weappLogin } from './utils/user'
+import IcpFooter from './components/IcpFooter'
 import './styles/global.css'
 
 // 过滤三方注入脚本的无害报错（只针对这一个高度特征化的错误，不做通用吞错）：
@@ -46,7 +47,12 @@ function App({ children }: PropsWithChildren) {
       weappLogin().catch(() => {})
     }
   })
-  return children
+  return (
+    <>
+      {children}
+      <IcpFooter />
+    </>
+  )
 }
 
 export default App

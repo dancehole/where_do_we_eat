@@ -306,7 +306,7 @@ export default function Preferences() {
           if (v === null || v === undefined) return
           if (f === 'price_min' || f === 'price_max' || f === 'radius') next[f] = String(v)
           else if (f === 'note') next.note = String(v)
-          else if (Array.isArray(v)) ;(next[f] as string[]) = v.map(String)
+          else if (Array.isArray(v)) (next[f] as string[]) = v.map(String)
         })
       } catch {
         Taro.showToast({ title: 'JSON 格式不正确', icon: 'none' })

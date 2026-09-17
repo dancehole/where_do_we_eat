@@ -68,8 +68,9 @@ export default function PageContainer({
   const isFull = mw === 0
   const contentMaxWidth: number | string = isFull ? '100%' : mw
   const contentWidth: number | string = isFull ? '100%' : mw
-  // 给底部导航留出空间，避免内容被遮挡
-  const navPad = showNav ? (mode === 'mobile' ? 72 : 80) : 0
+  // 给底部导航留出空间，避免内容被遮挡；H5 端还要给备案号固定栏（高 26）留空间
+  const icp = isH5 ? 26 : 0
+  const navPad = (showNav ? (mode === 'mobile' ? 72 : 80) : 0) + icp
 
   const onBack = () => {
     const pages = Taro.getCurrentPages()

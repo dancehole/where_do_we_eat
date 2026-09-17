@@ -6,14 +6,27 @@ async function request(path: string, options: { method?: string; data?: any } = 
   const deviceId = useStore.getState().deviceId
   // 每次请求都解析一次：H5 下取当前页面主机名，内网/局域网访问时自动指向同一台机器的 8000 端口
   const base = getApiBase()
-  const res = await Taro.request({
-    url: `${base}${path}`,
-    method: (options.method || 'GET') as any,
-    data: options.data,
-    header: { 'content-type': 'application/json', 'X-Device-Id': deviceId },
-  })
+  let res: any
+  try {
+    res = await Taro.request({
+      url: `${base}${path}`,
+      method: (options.method || 'GET') as any,
+      data: options.data,
+      header: { 'content-type': 'application/json', 'X-Device-Id': deviceId },
+    })
+  } catch (e: any) {
+    // 网络层失败（连接被拒 / 超时 / 域名不合法等）：Taro 把原因放在 errMsg，e.message 往往为空
+    const detail = e?.errMsg || e?.message || String(e)
+    throw new Error(`网络请求失败（${base}）：${detail}`)
+  }
   if (res.statusCode >= 400) {
-    throw new Error(JSON.stringify(res.data))
+    // 后端是 FastAPI：错误体形如 { detail: "..." }；尽量取出可读原因而不是整段 JSON
+    const d: any = res.data
+    const detail =
+      d?.detail ??
+      d?.message ??
+      (typeof d === 'string' ? d : d ? JSON.stringify(d) : '无响应体')
+    throw new Error(`HTTP ${res.statusCode}：${typeof detail === 'string' ? detail : JSON.stringify(detail)}`)
   }
   return res.data
 }
